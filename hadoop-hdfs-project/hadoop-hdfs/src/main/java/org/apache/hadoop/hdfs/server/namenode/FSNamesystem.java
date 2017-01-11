@@ -2218,7 +2218,8 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
    *
    * @param src file/directory path
    */
-  void satisfyStoragePolicy(String src) throws IOException {
+  void satisfyStoragePolicy(String src, boolean logRetryCache)
+      throws IOException {
     checkOperation(OperationCategory.WRITE);
     writeLock();
     try {
@@ -2240,8 +2241,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
                 + " by admin. Seek for an admin help to activate it "
                 + "or use Mover tool.");
       }
-      // TODO: need to update editlog for persistence.
-      FSDirAttrOp.satisfyStoragePolicy(dir, blockManager, src);
+      FSDirAttrOp.satisfyStoragePolicy(dir, blockManager, src, logRetryCache);
     } finally {
       writeUnlock();
     }
