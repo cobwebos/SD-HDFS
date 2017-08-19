@@ -281,3 +281,5 @@ int execute_regex_match(const char *regex_str, const char *input);
  * Return 0 on success.
  */
 int validate_docker_image_name(const char *image_name);
+
+struct configuration* get_cfg();
