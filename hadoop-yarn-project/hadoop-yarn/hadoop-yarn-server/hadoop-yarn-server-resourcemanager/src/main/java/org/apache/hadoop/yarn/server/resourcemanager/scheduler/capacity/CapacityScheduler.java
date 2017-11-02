@@ -1868,7 +1868,7 @@ public class CapacityScheduler extends
       // update this node to node label manager
       if (labelManager != null) {
         labelManager.activateNode(nodeManager.getNodeID(),
-            schedulerNode.getTotalResource());
+            schedulerNode.getCapacity());
       }
 
       Resource clusterResource = getClusterResource();
