@@ -633,7 +633,7 @@ public class TestCapacitySchedulerAsyncScheduling {
     // nm1 runs 2 container(container_01/AM, container_02)
     allocateAndLaunchContainers(am, nm1, rm, 1,
         Resources.createResource(6 * GB), 0, 2);
-    Assert.assertEquals(2, sn1.getNumContainers());
+    Assert.assertEquals(2, sn1.getNumGuaranteedContainers());
     Assert.assertEquals(1 * GB, sn1.getUnallocatedResource().getMemorySize());
 
     // app asks 5 * 2G container

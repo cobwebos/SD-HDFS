@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.yarn.server.resourcemanager;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -104,7 +103,10 @@ public class MockNodes {
     return rs;
   }
 
-  private static class MockRMNodeImpl implements RMNode {
+  /**
+   * A mock implementation of RMNode.
+   */
+  public static class MockRMNodeImpl implements RMNode {
     private NodeId nodeId;
     private String hostName;
     private String nodeAddr;
@@ -119,12 +121,27 @@ public class MockNodes {
     private ResourceUtilization containersUtilization;
     private ResourceUtilization nodeUtilization;
     private Resource physicalResource;
+    private OverAllocationInfo overAllocationInfo;
+    private List<UpdatedContainerInfo> containerUpdates =
+        Collections.EMPTY_LIST;
+
+    public MockRMNodeImpl(NodeId nodeId, String nodeAddr, String httpAddress,
+        Resource perNode, String rackName, String healthReport,
+        long lastHealthReportTime, int cmdPort, String hostName,
+        NodeState state, Set<String> labels,
+        ResourceUtilization containersUtilization,
+        ResourceUtilization nodeUtilization, Resource pPhysicalResource) {
+      this(nodeId, nodeAddr, httpAddress, perNode, rackName, healthReport,
+          lastHealthReportTime, cmdPort, hostName, state, labels,
+          containersUtilization, nodeUtilization, pPhysicalResource, null);
+    }
 
     public MockRMNodeImpl(NodeId nodeId, String nodeAddr, String httpAddress,
         Resource perNode, String rackName, String healthReport,
         long lastHealthReportTime, int cmdPort, String hostName, NodeState state,
         Set<String> labels, ResourceUtilization containersUtilization,
-        ResourceUtilization nodeUtilization, Resource pPhysicalResource) {
+        ResourceUtilization nodeUtilization, Resource pPhysicalResource,
+        OverAllocationInfo overAllocationInfo) {
       this.nodeId = nodeId;
       this.nodeAddr = nodeAddr;
       this.httpAddress = httpAddress;
@@ -139,6 +156,7 @@ public class MockNodes {
       this.containersUtilization = containersUtilization;
       this.nodeUtilization = nodeUtilization;
       this.physicalResource = pPhysicalResource;
+      this.overAllocationInfo = overAllocationInfo;
     }
 
     @Override
@@ -227,7 +245,7 @@ public class MockNodes {
 
     @Override
     public List<UpdatedContainerInfo> pullContainerUpdates() {
-      return new ArrayList<UpdatedContainerInfo>();
+      return containerUpdates;
     }
 
     @Override
@@ -265,7 +283,7 @@ public class MockNodes {
 
     @Override
     public OverAllocationInfo getOverAllocationInfo() {
-      return null;
+      return this.overAllocationInfo;
     }
 
     public OpportunisticContainersStatus getOpportunisticContainersStatus() {
@@ -295,6 +313,19 @@ public class MockNodes {
     public Resource getPhysicalResource() {
       return this.physicalResource;
     }
+
+    public void updateResourceUtilization(ResourceUtilization utilization) {
+      this.nodeUtilization = utilization;
+    }
+
+    public void updateContainersAndNodeUtilization(
+        UpdatedContainerInfo updatedContainerInfo,
+        ResourceUtilization resourceUtilization) {
+      if (updatedContainerInfo != null) {
+        containerUpdates = Collections.singletonList(updatedContainerInfo);
+      }
+      this.nodeUtilization = resourceUtilization;
+    }
   };
 
   private static RMNode buildRMNode(int rack, final Resource perNode,
@@ -318,6 +349,15 @@ public class MockNodes {
       NodeState state, String httpAddr, int hostnum, String hostName, int port,
       Set<String> labels, ResourceUtilization containersUtilization,
       ResourceUtilization nodeUtilization, Resource physicalResource) {
+    return buildRMNode(rack, perNode, state, httpAddr, hostnum, hostName, port,
+        labels, containersUtilization, nodeUtilization, physicalResource, null);
+  }
+
+  private static MockRMNodeImpl buildRMNode(int rack, final Resource perNode,
+      NodeState state, String httpAddr, int hostnum, String hostName, int port,
+      Set<String> labels, ResourceUtilization containersUtilization,
+      ResourceUtilization nodeUtilization, Resource physicalResource,
+      OverAllocationInfo overAllocationInfo) {
     final String rackName = "rack"+ rack;
     final int nid = hostnum;
     final String nodeAddr = hostName + ":" + nid;
@@ -330,9 +370,9 @@ public class MockNodes {
     String healthReport = (state == NodeState.UNHEALTHY) ? null : "HealthyMe";
     return new MockRMNodeImpl(nodeID, nodeAddr, httpAddress, perNode,
         rackName, healthReport, 0, nid, hostName, state, labels,
-        containersUtilization, nodeUtilization, physicalResource);
+        containersUtilization, nodeUtilization,
+        physicalResource, overAllocationInfo);
   }
-
   public static RMNode nodeInfo(int rack, final Resource perNode,
       NodeState state) {
     return buildRMNode(rack, perNode, state, "N/A");
@@ -361,4 +401,10 @@ public class MockNodes {
     return buildRMNode(rack, perNode, null, "localhost:0", hostnum, hostName, port);
   }
 
+  public static MockRMNodeImpl newNodeInfo(int rack, final Resource perNode,
+      OverAllocationInfo overAllocationInfo) {
+    return buildRMNode(rack, perNode, NodeState.RUNNING, "localhost:0",
+        NODE_ID++, null, 123, null, ResourceUtilization.newInstance(0, 0, 0.0f),
+        ResourceUtilization.newInstance(0, 0, 0.0f), null, overAllocationInfo);
+  }
 }
