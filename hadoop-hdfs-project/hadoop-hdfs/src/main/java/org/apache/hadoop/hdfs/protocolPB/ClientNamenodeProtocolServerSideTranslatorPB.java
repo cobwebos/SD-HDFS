@@ -160,8 +160,8 @@ import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.GetSto
 import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.GetStoragePolicyResponseProto;
 import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.IsFileClosedRequestProto;
 import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.IsFileClosedResponseProto;
-import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.IsStoragePolicySatisfierRunningRequestProto;
-import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.IsStoragePolicySatisfierRunningResponseProto;
+import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.IsInternalSatisfierRunningRequestProto;
+import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.IsInternalSatisfierRunningResponseProto;
 import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.ListCacheDirectivesRequestProto;
 import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.ListCacheDirectivesResponseProto;
 import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.ListCachePoolsRequestProto;
@@ -1848,14 +1848,14 @@ public class ClientNamenodeProtocolServerSideTranslatorPB implements
   }
 
   @Override
-  public IsStoragePolicySatisfierRunningResponseProto
-      isStoragePolicySatisfierRunning(RpcController controller,
-      IsStoragePolicySatisfierRunningRequestProto req)
+  public IsInternalSatisfierRunningResponseProto
+      isInternalSatisfierRunning(RpcController controller,
+      IsInternalSatisfierRunningRequestProto req)
       throws ServiceException {
     try {
-      boolean ret = server.isStoragePolicySatisfierRunning();
-      IsStoragePolicySatisfierRunningResponseProto.Builder builder =
-          IsStoragePolicySatisfierRunningResponseProto.newBuilder();
+      boolean ret = server.isInternalSatisfierRunning();
+      IsInternalSatisfierRunningResponseProto.Builder builder =
+          IsInternalSatisfierRunningResponseProto.newBuilder();
       builder.setRunning(ret);
       return builder.build();
     } catch (IOException e) {
