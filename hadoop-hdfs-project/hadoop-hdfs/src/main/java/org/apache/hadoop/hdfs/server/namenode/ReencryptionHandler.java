@@ -700,7 +700,7 @@ public class ReencryptionHandler implements Runnable {
      * @throws InterruptedException
      */
     @Override
-    protected void submitCurrentBatch(final long zoneId) throws IOException,
+    protected void submitCurrentBatch(final Long zoneId) throws IOException,
         InterruptedException {
       if (currentBatch.isEmpty()) {
         return;
