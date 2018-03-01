@@ -272,6 +272,7 @@ public class NMNullStateStoreService extends NMStateStoreService {
   public void storeAssignedResources(Container container,
       String resourceType, List<? extends Serializable> assignedResources)
       throws IOException {
+    updateContainerResourceMapping(container, resourceType, assignedResources);
   }
 
   @Override
