@@ -50,6 +50,7 @@ import org.apache.hadoop.yarn.api.records.ContainerState;
 import org.apache.hadoop.yarn.api.records.ContainerStatus;
 import org.apache.hadoop.yarn.api.records.ContainerUpdateType;
 import org.apache.hadoop.yarn.api.records.ExecutionType;
+import org.apache.hadoop.yarn.api.records.NodeAttribute;
 import org.apache.hadoop.yarn.api.records.NodeId;
 import org.apache.hadoop.yarn.api.records.NodeState;
 import org.apache.hadoop.yarn.api.records.Resource;
@@ -184,6 +185,9 @@ public class RMNodeImpl implements RMNode, EventHandler<RMNodeEvent> {
 
   private NodeHeartbeatResponse latestNodeHeartBeatResponse = recordFactory
       .newRecordInstance(NodeHeartbeatResponse.class);
+
+  // Node attributes, store by prefix
+  private Map<String, Set<NodeAttribute>> nodeAttributes = new HashMap<>();
 
   private static final StateMachineFactory<RMNodeImpl,
                                            NodeState,
@@ -1540,5 +1544,16 @@ public class RMNodeImpl implements RMNode, EventHandler<RMNodeEvent> {
   public Map<String, Long> getAllocationTagsWithCount() {
     return context.getAllocationTagsManager()
         .getAllocationTagsWithCount(getNodeID());
+  }
+
+  @Override
+  public void setNodeAttributes(String prefix,
+      Set<NodeAttribute> nodeAttributeSet) {
+    this.nodeAttributes.put(prefix, nodeAttributeSet);
+  }
+
+  @Override
+  public Map<String, Set<NodeAttribute>> getAllNodeAttributes() {
+    return this.nodeAttributes;
   }
 }

@@ -31,6 +31,7 @@ import org.apache.hadoop.yarn.api.records.NodeId;
 import org.apache.hadoop.yarn.api.records.NodeState;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.api.records.ResourceUtilization;
+import org.apache.hadoop.yarn.api.records.NodeAttribute;
 import org.apache.hadoop.yarn.server.api.protocolrecords.NodeHeartbeatResponse;
 import org.apache.hadoop.yarn.server.api.records.OpportunisticContainersStatus;
 
@@ -189,4 +190,16 @@ public interface RMNode {
    * @return a map of each allocation tag and its count.
    */
   Map<String, Long> getAllocationTagsWithCount();
+
+ /**
+   * Sets node attributes per prefix.
+   * @param prefix node attribute prefix
+   * @param nodeAttributes node attributes
+   */
+  void setNodeAttributes(String prefix, Set<NodeAttribute> nodeAttributes);
+
+  /**
+   * @return all node attributes grouped by their prefix as a map.
+   */
+  Map<String, Set<NodeAttribute>> getAllNodeAttributes();
 }
