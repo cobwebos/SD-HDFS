@@ -30,7 +30,7 @@ import java.util.List;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.protocol.HdfsConstants;
 import org.apache.hadoop.hdfs.server.federation.RouterConfigBuilder;
-import org.apache.hadoop.hdfs.server.federation.RouterDFSCluster.RouterContext;
+import org.apache.hadoop.hdfs.server.federation.MiniRouterDFSCluster.RouterContext;
 import org.apache.hadoop.hdfs.server.federation.StateStoreDFSCluster;
 import org.apache.hadoop.hdfs.server.federation.resolver.MountTableManager;
 import org.apache.hadoop.hdfs.server.federation.resolver.RemoteLocation;
@@ -381,6 +381,8 @@ public class TestRouterAdminCLI {
         .getMountTableEntries(getRequest);
     mountTable = getResponse.getEntries().get(0);
     quotaUsage = mountTable.getQuota();
+    // verify if ns quota keeps quondam value
+    assertEquals(nsQuota, quotaUsage.getQuota());
     // verify if ss quota is correctly set
     assertEquals(2 * 1024 * 1024, quotaUsage.getSpaceQuota());
 
