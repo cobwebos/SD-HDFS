@@ -367,19 +367,26 @@ public class NodeAttributesManagerImpl extends NodeAttributesManager {
     return attributes;
   }
 
-  // TODO need to handle as part of REST patch.
-  /*
-   * @Override public Map<NodeAttribute, Set<String>> getAttributesToNodes(
-   * Set<NodeAttribute> attributes) { try { readLock.lock(); boolean
-   * fetchAllAttributes = (attributes == null || attributes.isEmpty());
-   * Map<NodeAttribute, Set<String>> attributesToNodes = new HashMap<>(); for
-   * (Entry<NodeAttribute, RMAttributeNodeLabel> attributeEntry :
-   * attributeCollections .entrySet()) { if (fetchAllAttributes ||
-   * attributes.contains(attributeEntry.getKey())) {
-   * attributesToNodes.put(attributeEntry.getKey(),
-   * attributeEntry.getValue().getAssociatedNodeIds()); } } return
-   * attributesToNodes; } finally { readLock.unlock(); } }
-   */
+  @Override
+  public Map<NodeAttribute, Set<String>> getAttributesToNodes(
+      Set<NodeAttribute> attributes) {
+    try {
+      readLock.lock();
+      boolean fetchAllAttributes = (attributes == null || attributes.isEmpty());
+      Map<NodeAttribute, Set<String>> attributesToNodes = new HashMap<>();
+      for (Entry<NodeAttribute, RMNodeAttribute> attributeEntry :
+          clusterAttributes.entrySet()) {
+        if (fetchAllAttributes || attributes
+            .contains(attributeEntry.getKey())) {
+          attributesToNodes.put(attributeEntry.getKey(),
+              attributeEntry.getValue().getAssociatedNodeIds());
+        }
+      }
+      return attributesToNodes;
+    } finally {
+      readLock.unlock();
+    }
+  }
 
   public Resource getResourceByAttribute(NodeAttribute attribute) {
     try {
