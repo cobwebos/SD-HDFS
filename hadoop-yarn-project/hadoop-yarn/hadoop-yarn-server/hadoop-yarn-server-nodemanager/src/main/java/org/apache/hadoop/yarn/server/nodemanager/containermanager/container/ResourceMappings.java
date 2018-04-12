@@ -84,7 +84,7 @@ public class ResourceMappings {
       return Collections.unmodifiableList(resources);
     }
 
-    public void updateAssignedResources(List<Serializable> list) {
+    public void updateAssignedResources(List<? extends Serializable> list) {
       this.resources = new ArrayList<>(list);
     }
 

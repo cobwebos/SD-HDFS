@@ -35,6 +35,7 @@ import org.apache.hadoop.yarn.proto.YarnServerNodemanagerRecoveryProtos.Localize
 import org.apache.hadoop.yarn.proto.YarnServerNodemanagerRecoveryProtos.LogDeleterProto;
 import org.apache.hadoop.yarn.security.ContainerTokenIdentifier;
 import org.apache.hadoop.yarn.server.api.records.MasterKey;
+import org.apache.hadoop.yarn.server.nodemanager.containermanager.container.Container;
 
 // The state store to use when state isn't being stored
 public class NMNullStateStoreService extends NMStateStoreService {
@@ -268,8 +269,8 @@ public class NMNullStateStoreService extends NMStateStoreService {
   }
 
   @Override
-  public void storeAssignedResources(ContainerId containerId,
-      String resourceType, List<Serializable> assignedResources)
+  public void storeAssignedResources(Container container,
+      String resourceType, List<? extends Serializable> assignedResources)
       throws IOException {
   }
 

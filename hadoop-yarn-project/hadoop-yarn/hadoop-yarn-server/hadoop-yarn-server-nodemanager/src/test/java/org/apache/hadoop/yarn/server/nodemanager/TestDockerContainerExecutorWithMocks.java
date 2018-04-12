@@ -116,7 +116,7 @@ public class TestDockerContainerExecutorWithMocks {
   public void testContainerInitSecure() throws IOException {
     dockerContainerExecutor.getConf().set(
       CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
-    dockerContainerExecutor.init();
+    dockerContainerExecutor.init(null);
   }
 
   @Test(expected = IllegalArgumentException.class)
