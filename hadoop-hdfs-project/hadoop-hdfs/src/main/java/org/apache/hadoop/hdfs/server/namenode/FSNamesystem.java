@@ -259,7 +259,6 @@ import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.namenode.snapshot.DirectorySnapshottableFeature;
 import org.apache.hadoop.hdfs.server.namenode.snapshot.Snapshot;
 import org.apache.hadoop.hdfs.server.namenode.snapshot.SnapshotManager;
-import org.apache.hadoop.hdfs.server.namenode.sps.SPSService;
 import org.apache.hadoop.hdfs.server.namenode.startupprogress.Phase;
 import org.apache.hadoop.hdfs.server.namenode.startupprogress.StartupProgress;
 import org.apache.hadoop.hdfs.server.namenode.startupprogress.Step;
@@ -268,7 +267,6 @@ import org.apache.hadoop.hdfs.server.namenode.top.TopAuditLogger;
 import org.apache.hadoop.hdfs.server.namenode.top.TopConf;
 import org.apache.hadoop.hdfs.server.namenode.top.metrics.TopMetrics;
 import org.apache.hadoop.hdfs.server.namenode.top.window.RollingWindowManager;
-import org.apache.hadoop.hdfs.server.protocol.BlocksStorageMoveAttemptFinished;
 import org.apache.hadoop.hdfs.server.protocol.BlocksWithLocations;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeCommand;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeRegistration;
@@ -1288,7 +1286,9 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
         FSDirEncryptionZoneOp.warmUpEdekCache(edekCacheLoader, dir,
             edekCacheLoaderDelay, edekCacheLoaderInterval);
       }
-      blockManager.getSPSManager().start();
+      if (blockManager.getSPSManager() != null) {
+        blockManager.getSPSManager().start();
+      }
     } finally {
       startingActiveService = false;
       blockManager.checkSafeMode();
@@ -1318,7 +1318,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
     LOG.info("Stopping services started for active state");
     writeLock();
     try {
-      if (blockManager != null) {
+      if (blockManager != null && blockManager.getSPSManager() != null) {
         blockManager.getSPSManager().stop();
       }
       stopSecretManager();
@@ -1359,7 +1359,9 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
         // Don't want to keep replication queues when not in Active.
         blockManager.clearQueues();
         blockManager.setInitializedReplQueues(false);
-        blockManager.getSPSManager().stopGracefully();
+        if (blockManager.getSPSManager() != null) {
+          blockManager.getSPSManager().stopGracefully();
+        }
       }
     } finally {
       writeUnlock("stopActiveServices");
@@ -2257,7 +2259,8 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
           DFS_STORAGE_POLICY_ENABLED_KEY));
     }
     // checks sps status
-    if (!blockManager.getSPSManager().isEnabled() || (blockManager
+    boolean disabled = (blockManager.getSPSManager() == null);
+    if (disabled || (blockManager
         .getSPSManager().getMode() == StoragePolicySatisfierMode.INTERNAL
         && !blockManager.getSPSManager().isInternalSatisfierRunning())) {
       throw new UnsupportedActionException(
@@ -3927,8 +3930,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
       VolumeFailureSummary volumeFailureSummary,
       boolean requestFullBlockReportLease,
       @Nonnull SlowPeerReports slowPeers,
-      @Nonnull SlowDiskReports slowDisks,
-      BlocksStorageMoveAttemptFinished blksMovementsFinished)
+      @Nonnull SlowDiskReports slowDisks)
           throws IOException {
     readLock();
     try {
@@ -3942,18 +3944,6 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
       long blockReportLeaseId = 0;
       if (requestFullBlockReportLease) {
         blockReportLeaseId =  blockManager.requestBlockReportLeaseId(nodeReg);
-      }
-
-      // Handle blocks movement results sent by the coordinator datanode.
-      SPSService sps = blockManager.getSPSManager().getInternalSPSService();
-      if (!sps.isRunning()) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug(
-              "Storage policy satisfier is not running. So, ignoring storage"
-                  + "  movement attempt finished block info sent by DN");
-        }
-      } else {
-        sps.notifyStorageMovementAttemptFinishedBlks(blksMovementsFinished);
       }
 
       //create ha status
