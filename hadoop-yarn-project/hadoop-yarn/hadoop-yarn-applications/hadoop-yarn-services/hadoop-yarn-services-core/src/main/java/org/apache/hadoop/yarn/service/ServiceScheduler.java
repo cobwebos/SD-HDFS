@@ -156,6 +156,8 @@ public class ServiceScheduler extends CompositeService {
   // requests for a single service is not recommended.
   private boolean hasAtLeastOnePlacementConstraint;
 
+  private boolean gracefulStop = false;
+
   public ServiceScheduler(ServiceContext context) {
     super(context.service.getName());
     this.context = context;
@@ -199,6 +201,7 @@ public class ServiceScheduler extends CompositeService {
     addIfService(amRMClient);
 
     nmClient = createNMClient();
+    nmClient.getClient().cleanupRunningContainersOnStop(false);
     addIfService(nmClient);
 
     dispatcher = new AsyncDispatcher("Component  dispatcher");
@@ -231,9 +234,10 @@ public class ServiceScheduler extends CompositeService {
     createConfigFileCache(context.fs.getFileSystem());
 
     createAllComponents();
-    containerRecoveryTimeout = getConfig().getInt(
+    containerRecoveryTimeout = YarnServiceConf.getInt(
         YarnServiceConf.CONTAINER_RECOVERY_TIMEOUT_MS,
-        YarnServiceConf.DEFAULT_CONTAINER_RECOVERY_TIMEOUT_MS);
+        YarnServiceConf.DEFAULT_CONTAINER_RECOVERY_TIMEOUT_MS,
+        app.getConfiguration(), getConfig());
   }
 
   protected YarnRegistryViewForProviders createYarnRegistryOperations(
@@ -252,6 +256,11 @@ public class ServiceScheduler extends CompositeService {
         .createAMRMClientAsync(1000, new AMRMClientCallback());
   }
 
+  protected void setGracefulStop() {
+    this.gracefulStop = true;
+    nmClient.getClient().cleanupRunningContainersOnStop(true);
+  }
+
   @Override
   public void serviceInit(Configuration conf) throws Exception {
     try {
@@ -266,26 +275,31 @@ public class ServiceScheduler extends CompositeService {
   public void serviceStop() throws Exception {
     LOG.info("Stopping service scheduler");
 
-    // Mark component-instances/containers as STOPPED
-    if (YarnConfiguration.timelineServiceV2Enabled(getConfig())) {
-      for (ContainerId containerId : getLiveInstances().keySet()) {
-        serviceTimelinePublisher.componentInstanceFinished(containerId,
-            KILLED_AFTER_APP_COMPLETION, diagnostics.toString());
-      }
-    }
     if (executorService != null) {
       executorService.shutdownNow();
     }
 
     DefaultMetricsSystem.shutdown();
-    if (YarnConfiguration.timelineServiceV2Enabled(getConfig())) {
-      serviceTimelinePublisher
-          .serviceAttemptUnregistered(context, diagnostics.toString());
+
+    // only stop the entire service when a graceful stop has been initiated
+    // (e.g. via client RPC, not through the AM receiving a SIGTERM)
+    if (gracefulStop) {
+      if (YarnConfiguration.timelineServiceV2Enabled(getConfig())) {
+        // mark component-instances/containers as STOPPED
+        for (ContainerId containerId : getLiveInstances().keySet()) {
+          serviceTimelinePublisher.componentInstanceFinished(containerId,
+              KILLED_AFTER_APP_COMPLETION, diagnostics.toString());
+        }
+        // mark attempt as unregistered
+        serviceTimelinePublisher
+            .serviceAttemptUnregistered(context, diagnostics.toString());
+      }
+      // unregister AM
+      amRMClient.unregisterApplicationMaster(FinalApplicationStatus.ENDED,
+          diagnostics.toString(), "");
+      LOG.info("Service {} unregistered with RM, with attemptId = {} " +
+          ", diagnostics = {} ", app.getName(), context.attemptId, diagnostics);
     }
-    amRMClient.unregisterApplicationMaster(FinalApplicationStatus.ENDED,
-        diagnostics.toString(), "");
-    LOG.info("Service {} unregistered with RM, with attemptId = {} " +
-        ", diagnostics = {} ", app.getName(), context.attemptId, diagnostics);
     super.serviceStop();
   }
 
@@ -315,6 +329,7 @@ public class ServiceScheduler extends CompositeService {
     // Since AM has been started and registered, the service is in STARTED state
     app.setState(ServiceState.STARTED);
     serviceManager = new ServiceManager(context);
+    context.setServiceManager(serviceManager);
 
     // recover components based on containers sent from RM
     recoverComponents(response);
@@ -741,6 +756,32 @@ public class ServiceScheduler extends CompositeService {
       amRMClient.releaseAssignedContainer(containerId);
       // After container released, it'll get CONTAINER_COMPLETED event from RM
       // automatically which will trigger stopping COMPONENT INSTANCE
+    }
+
+    @Override
+    public void onContainerReInitialize(ContainerId containerId) {
+      ComponentInstance instance = liveInstances.get(containerId);
+      if (instance == null) {
+        LOG.error("No component instance exists for {}", containerId);
+        return;
+      }
+      ComponentInstanceEvent becomeReadyEvent = new ComponentInstanceEvent(
+          containerId, ComponentInstanceEventType.BECOME_READY);
+      dispatcher.getEventHandler().handle(becomeReadyEvent);
+    }
+
+    @Override
+    public void onContainerReInitializeError(ContainerId containerId,
+        Throwable t) {
+      ComponentInstance instance = liveInstances.get(containerId);
+      if (instance == null) {
+        LOG.error("No component instance exists for {}", containerId);
+        return;
+      }
+      ComponentEvent event = new ComponentEvent(instance.getCompName(),
+          ComponentEventType.CONTAINER_COMPLETED)
+          .setInstance(instance).setContainerId(containerId);
+      dispatcher.getEventHandler().handle(event);
     }
 
     @Override public void onContainerResourceIncreased(ContainerId containerId,

@@ -24,6 +24,7 @@ import static org.apache.hadoop.hdfs.server.federation.FederationTestUtils.delet
 import static org.apache.hadoop.hdfs.server.federation.FederationTestUtils.getFileStatus;
 import static org.apache.hadoop.hdfs.server.federation.FederationTestUtils.verifyFileExists;
 import static org.apache.hadoop.hdfs.server.federation.MiniRouterDFSCluster.TEST_STRING;
+import static org.apache.hadoop.test.GenericTestUtils.assertExceptionContains;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -31,6 +32,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -79,6 +81,7 @@ import org.apache.hadoop.hdfs.security.token.block.ExportedBlockKeys;
 import org.apache.hadoop.hdfs.server.federation.MiniRouterDFSCluster;
 import org.apache.hadoop.hdfs.server.federation.MiniRouterDFSCluster.NamenodeContext;
 import org.apache.hadoop.hdfs.server.federation.MiniRouterDFSCluster.RouterContext;
+import org.apache.hadoop.hdfs.server.federation.MockResolver;
 import org.apache.hadoop.hdfs.server.federation.RouterConfigBuilder;
 import org.apache.hadoop.hdfs.server.federation.metrics.NamenodeBeanMetrics;
 import org.apache.hadoop.hdfs.server.federation.resolver.FileSubclusterResolver;
@@ -1012,6 +1015,23 @@ public class TestRouterRpc {
     boolean nnSafemode =
         nnProtocol.setSafeMode(SafeModeAction.SAFEMODE_GET, false);
     assertEquals(nnSafemode, routerSafemode);
+
+    routerSafemode =
+        routerProtocol.setSafeMode(SafeModeAction.SAFEMODE_GET, true);
+    nnSafemode =
+        nnProtocol.setSafeMode(SafeModeAction.SAFEMODE_GET, true);
+    assertEquals(nnSafemode, routerSafemode);
+
+    assertFalse(routerProtocol.setSafeMode(
+        SafeModeAction.SAFEMODE_GET, false));
+    assertTrue(routerProtocol.setSafeMode(
+        SafeModeAction.SAFEMODE_ENTER, false));
+    assertTrue(routerProtocol.setSafeMode(
+        SafeModeAction.SAFEMODE_GET, false));
+    assertFalse(routerProtocol.setSafeMode(
+        SafeModeAction.SAFEMODE_LEAVE, false));
+    assertFalse(routerProtocol.setSafeMode(
+        SafeModeAction.SAFEMODE_GET, false));
   }
 
   @Test
@@ -1019,6 +1039,52 @@ public class TestRouterRpc {
     boolean routerSuccess = routerProtocol.restoreFailedStorage("check");
     boolean nnSuccess = nnProtocol.restoreFailedStorage("check");
     assertEquals(nnSuccess, routerSuccess);
+  }
+
+  @Test
+  public void testProxyExceptionMessages() throws IOException {
+
+    // Install a mount point to a different path to check
+    MockResolver resolver =
+        (MockResolver)router.getRouter().getSubclusterResolver();
+    String ns0 = cluster.getNameservices().get(0);
+    resolver.addLocation("/mnt", ns0, "/");
+
+    try {
+      FsPermission permission = new FsPermission("777");
+      routerProtocol.mkdirs("/mnt/folder0/folder1", permission, false);
+      fail("mkdirs for non-existing parent folder should have failed");
+    } catch (IOException ioe) {
+      assertExceptionContains("/mnt/folder0", ioe,
+          "Wrong path in exception for mkdirs");
+    }
+
+    try {
+      FsPermission permission = new FsPermission("777");
+      routerProtocol.setPermission("/mnt/testfile.txt", permission);
+      fail("setPermission for non-existing file should have failed");
+    } catch (IOException ioe) {
+      assertExceptionContains("/mnt/testfile.txt", ioe,
+          "Wrong path in exception for setPermission");
+    }
+
+    try {
+      FsPermission permission = new FsPermission("777");
+      routerProtocol.mkdirs("/mnt/folder0/folder1", permission, false);
+      routerProtocol.delete("/mnt/folder0", false);
+      fail("delete for non-existing file should have failed");
+    } catch (IOException ioe) {
+      assertExceptionContains("/mnt/folder0", ioe,
+          "Wrong path in exception for delete");
+    }
+
+    resolver.cleanRegistrations();
+
+    // Check corner cases
+    assertEquals(
+        "Parent directory doesn't exist: /ns1/a/a/b",
+        RouterRpcClient.processExceptionMsg(
+            "Parent directory doesn't exist: /a/a/b", "/a", "/ns1/a"));
   }
 
   @Test
@@ -1155,7 +1221,25 @@ public class TestRouterRpc {
     }, 500, 5 * 1000);
 
     // The cache should be updated now
-    assertNotEquals(jsonString0, metrics.getLiveNodes());
+    final String jsonString2 = metrics.getLiveNodes();
+    assertNotEquals(jsonString0, jsonString2);
+
+
+    // Without any subcluster available, we should return an empty list
+    MockResolver resolver =
+        (MockResolver) router.getRouter().getNamenodeResolver();
+    resolver.cleanRegistrations();
+    GenericTestUtils.waitFor(new Supplier<Boolean>() {
+      @Override
+      public Boolean get() {
+        return !jsonString2.equals(metrics.getLiveNodes());
+      }
+    }, 500, 5 * 1000);
+    assertEquals("{}", metrics.getLiveNodes());
+
+    // Reset the registrations again
+    cluster.registerNamenodes();
+    cluster.waitNamenodeRegistration();
   }
 
   /**

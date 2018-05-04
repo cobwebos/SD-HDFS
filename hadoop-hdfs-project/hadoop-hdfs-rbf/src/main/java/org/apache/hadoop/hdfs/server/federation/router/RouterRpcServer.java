@@ -30,6 +30,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.Array;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -288,7 +289,6 @@ public class RouterRpcServer extends AbstractService
     // We don't want the server to log the full stack trace for some exceptions
     this.rpcServer.addTerseExceptions(
         RemoteException.class,
-        StandbyException.class,
         SafeModeException.class,
         FileNotFoundException.class,
         FileAlreadyExistsException.class,
@@ -296,6 +296,9 @@ public class RouterRpcServer extends AbstractService
         LeaseExpiredException.class,
         NotReplicatedYetException.class,
         IOException.class);
+
+    this.rpcServer.addSuppressedLoggingExceptions(
+        StandbyException.class);
 
     // The RPC-server port can be ephemeral... ensure we have the correct info
     InetSocketAddress listenAddress = this.rpcServer.getListenerAddress();
@@ -412,7 +415,7 @@ public class RouterRpcServer extends AbstractService
    * @throws UnsupportedOperationException If the operation is not supported.
    */
   protected void checkOperation(OperationCategory op, boolean supported)
-      throws RouterSafeModeException, UnsupportedOperationException {
+      throws StandbyException, UnsupportedOperationException {
     checkOperation(op);
 
     if (!supported) {
@@ -434,7 +437,7 @@ public class RouterRpcServer extends AbstractService
    *                           client requests.
    */
   protected void checkOperation(OperationCategory op)
-      throws RouterSafeModeException {
+      throws StandbyException {
     // Log the function we are currently calling.
     if (rpcMonitor != null) {
       rpcMonitor.startOp();
@@ -458,7 +461,8 @@ public class RouterRpcServer extends AbstractService
       if (rpcMonitor != null) {
         rpcMonitor.routerFailureSafemode();
       }
-      throw new RouterSafeModeException(router.getRouterId(), op);
+      throw new StandbyException("Router " + router.getRouterId() +
+          " is in safe mode and cannot handle " + op + " requests");
     }
   }
 
@@ -900,7 +904,8 @@ public class RouterRpcServer extends AbstractService
       throws IOException {
     checkOperation(OperationCategory.WRITE);
 
-    final List<RemoteLocation> srcLocations = getLocationsForPath(src, true);
+    final List<RemoteLocation> srcLocations =
+        getLocationsForPath(src, true, false);
     // srcLocations may be trimmed by getRenameDestinations()
     final List<RemoteLocation> locs = new LinkedList<>(srcLocations);
     RemoteParam dstParam = getRenameDestinations(locs, dst);
@@ -921,7 +926,8 @@ public class RouterRpcServer extends AbstractService
       final Options.Rename... options) throws IOException {
     checkOperation(OperationCategory.WRITE);
 
-    final List<RemoteLocation> srcLocations = getLocationsForPath(src, true);
+    final List<RemoteLocation> srcLocations =
+        getLocationsForPath(src, true, false);
     // srcLocations may be trimmed by getRenameDestinations()
     final List<RemoteLocation> locs = new LinkedList<>(srcLocations);
     RemoteParam dstParam = getRenameDestinations(locs, dst);
@@ -998,7 +1004,8 @@ public class RouterRpcServer extends AbstractService
   public boolean delete(String src, boolean recursive) throws IOException {
     checkOperation(OperationCategory.WRITE);
 
-    final List<RemoteLocation> locations = getLocationsForPath(src, true);
+    final List<RemoteLocation> locations =
+        getLocationsForPath(src, true, false);
     RemoteMethod method = new RemoteMethod("delete",
         new Class<?>[] {String.class, boolean.class}, new RemoteParam(),
         recursive);
@@ -1383,7 +1390,8 @@ public class RouterRpcServer extends AbstractService
         action, isChecked);
     Set<FederationNamespaceInfo> nss = namenodeResolver.getNamespaces();
     Map<FederationNamespaceInfo, Boolean> results =
-        rpcClient.invokeConcurrent(nss, method, true, true, Boolean.class);
+        rpcClient.invokeConcurrent(
+            nss, method, true, !isChecked, Boolean.class);
 
     // We only report true if all the name space are in safe mode
     int numSafemode = 0;
@@ -2213,14 +2221,29 @@ public class RouterRpcServer extends AbstractService
 
   /**
    * Get the possible locations of a path in the federated cluster.
+   * During the get operation, it will do the quota verification.
    *
    * @param path Path to check.
    * @param failIfLocked Fail the request if locked (top mount point).
    * @return Prioritized list of locations in the federated cluster.
    * @throws IOException If the location for this path cannot be determined.
    */
-  protected List<RemoteLocation> getLocationsForPath(
-      String path, boolean failIfLocked) throws IOException {
+  protected List<RemoteLocation> getLocationsForPath(String path,
+      boolean failIfLocked) throws IOException {
+    return getLocationsForPath(path, failIfLocked, true);
+  }
+
+  /**
+   * Get the possible locations of a path in the federated cluster.
+   *
+   * @param path Path to check.
+   * @param failIfLocked Fail the request if locked (top mount point).
+   * @param needQuotaVerify If need to do the quota verification.
+   * @return Prioritized list of locations in the federated cluster.
+   * @throws IOException If the location for this path cannot be determined.
+   */
+  protected List<RemoteLocation> getLocationsForPath(String path,
+      boolean failIfLocked, boolean needQuotaVerify) throws IOException {
     try {
       // Check the location for this path
       final PathLocation location =
@@ -2241,7 +2264,7 @@ public class RouterRpcServer extends AbstractService
         }
 
         // Check quota
-        if (this.router.isQuotaEnabled()) {
+        if (this.router.isQuotaEnabled() && needQuotaVerify) {
           RouterQuotaUsage quotaUsage = this.router.getQuotaManager()
               .getQuotaUsage(path);
           if (quotaUsage != null) {
@@ -2251,7 +2274,15 @@ public class RouterRpcServer extends AbstractService
         }
       }
 
-      return location.getDestinations();
+      // Filter disabled subclusters
+      Set<String> disabled = namenodeResolver.getDisabledNamespaces();
+      List<RemoteLocation> locs = new ArrayList<>();
+      for (RemoteLocation loc : location.getDestinations()) {
+        if (!disabled.contains(loc.getNameserviceId())) {
+          locs.add(loc);
+        }
+      }
+      return locs;
     } catch (IOException ioe) {
       if (this.rpcMonitor != null) {
         this.rpcMonitor.routerFailureStateStore();
@@ -2275,7 +2306,7 @@ public class RouterRpcServer extends AbstractService
           return entry.isAll();
         }
       } catch (IOException e) {
-        LOG.error("Cannot get mount point: {}", e.getMessage());
+        LOG.error("Cannot get mount point", e);
       }
     }
     return false;
@@ -2296,7 +2327,7 @@ public class RouterRpcServer extends AbstractService
           return true;
         }
       } catch (IOException e) {
-        LOG.error("Cannot get mount point: {}", e.getMessage());
+        LOG.error("Cannot get mount point", e);
       }
     }
     return false;
@@ -2310,8 +2341,62 @@ public class RouterRpcServer extends AbstractService
    */
   private Map<String, Long> getMountPointDates(String path) {
     Map<String, Long> ret = new TreeMap<>();
-    // TODO add when we have a Mount Table
+    if (subclusterResolver instanceof MountTableResolver) {
+      try {
+        final List<String> children = subclusterResolver.getMountPoints(path);
+        for (String child : children) {
+          Long modTime = getModifiedTime(ret, path, child);
+          ret.put(child, modTime);
+        }
+      } catch (IOException e) {
+        LOG.error("Cannot get mount point", e);
+      }
+    }
     return ret;
+  }
+
+  /**
+   * Get modified time for child. If the child is present in mount table it
+   * will return the modified time. If the child is not present but subdirs of
+   * this child are present then it will return latest modified subdir's time
+   * as modified time of the requested child.
+   * @param ret contains children and modified times.
+   * @param mountTable.
+   * @param path Name of the path to start checking dates from.
+   * @param child child of the requested path.
+   * @return modified time.
+   */
+  private long getModifiedTime(Map<String, Long> ret, String path,
+      String child) {
+    MountTableResolver mountTable = (MountTableResolver)subclusterResolver;
+    String srcPath;
+    if (path.equals(Path.SEPARATOR)) {
+      srcPath = Path.SEPARATOR + child;
+    } else {
+      srcPath = path + Path.SEPARATOR + child;
+    }
+    Long modTime = 0L;
+    try {
+      // Get mount table entry for the srcPath
+      MountTable entry = mountTable.getMountPoint(srcPath);
+      // if srcPath is not in mount table but its subdirs are in mount
+      // table we will display latest modified subdir date/time.
+      if (entry == null) {
+        List<MountTable> entries = mountTable.getMounts(srcPath);
+        for (MountTable eachEntry : entries) {
+          // Get the latest date
+          if (ret.get(child) == null ||
+              ret.get(child) < eachEntry.getDateModified()) {
+            modTime = eachEntry.getDateModified();
+          }
+        }
+      } else {
+        modTime = entry.getDateModified();
+      }
+    } catch (IOException e) {
+      LOG.error("Cannot get mount point", e);
+    }
+    return modTime;
   }
 
   /**

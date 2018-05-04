@@ -419,8 +419,9 @@ public class ProtobufRpcEngine implements RpcEngine {
         String portRangeConfig, AlignmentContext alignmentContext)
         throws IOException {
       super(bindAddress, port, null, numHandlers,
-          numReaders, queueSizePerHandler, conf, classNameBase(protocolImpl
-              .getClass().getName()), secretManager, portRangeConfig);
+          numReaders, queueSizePerHandler, conf,
+          serverNameFromClass(protocolImpl.getClass()), secretManager,
+          portRangeConfig);
       setAlignmentContext(alignmentContext);
       this.verbose = verbose;  
       registerProtocolAndImpl(RPC.RpcKind.RPC_PROTOCOL_BUFFER, protocolClass,

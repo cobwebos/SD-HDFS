@@ -20,7 +20,9 @@ package org.apache.hadoop.yarn.service.component.instance;
 
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.registry.client.api.RegistryConstants;
 import org.apache.hadoop.registry.client.binding.RegistryPathUtils;
+import org.apache.hadoop.registry.client.binding.RegistryUtils;
 import org.apache.hadoop.registry.client.types.ServiceRecord;
 import org.apache.hadoop.registry.client.types.yarn.PersistencePolicies;
 import org.apache.hadoop.util.ExitUtil;
@@ -39,6 +41,8 @@ import org.apache.hadoop.yarn.server.utils.BuilderUtils;
 import org.apache.hadoop.yarn.service.ServiceScheduler;
 import org.apache.hadoop.yarn.service.api.records.ContainerState;
 import org.apache.hadoop.yarn.service.component.Component;
+import org.apache.hadoop.yarn.service.component.ComponentEvent;
+import org.apache.hadoop.yarn.service.component.ComponentEventType;
 import org.apache.hadoop.yarn.service.monitor.probe.ProbeStatus;
 import org.apache.hadoop.yarn.service.registry.YarnRegistryViewForProviders;
 import org.apache.hadoop.yarn.service.timelineservice.ServiceTimelinePublisher;
@@ -114,9 +118,14 @@ public class ComponentInstance implements EventHandler<ComponentInstanceEvent>,
       .addTransition(READY, STARTED, BECOME_NOT_READY,
           new ContainerBecomeNotReadyTransition())
       .addTransition(READY, INIT, STOP, new ContainerStoppedTransition())
+      .addTransition(READY, UPGRADING, UPGRADE,
+          new ContainerUpgradeTransition())
+      .addTransition(UPGRADING, UPGRADING, UPGRADE,
+          new ContainerUpgradeTransition())
+      .addTransition(UPGRADING, READY, BECOME_READY,
+          new ContainerBecomeReadyTransition())
+      .addTransition(UPGRADING, INIT, STOP, new ContainerStoppedTransition())
       .installTopology();
-
-
 
   public ComponentInstance(Component component,
       ComponentInstanceId compInstanceId) {
@@ -184,7 +193,17 @@ public class ComponentInstance implements EventHandler<ComponentInstanceEvent>,
     public void transition(ComponentInstance compInstance,
         ComponentInstanceEvent event) {
       compInstance.containerSpec.setState(ContainerState.READY);
-      compInstance.component.incContainersReady();
+      if (compInstance.getState().equals(ComponentInstanceState.UPGRADING)) {
+        compInstance.component.incContainersReady(false);
+        compInstance.component.decContainersThatNeedUpgrade();
+        ComponentEvent checkState = new ComponentEvent(
+            compInstance.component.getName(), ComponentEventType.CHECK_STABLE);
+        compInstance.scheduler.getDispatcher().getEventHandler().handle(
+            checkState);
+
+      } else {
+        compInstance.component.incContainersReady(true);
+      }
       if (compInstance.timelineServiceEnabled) {
         compInstance.serviceTimelinePublisher
             .componentInstanceBecomeReady(compInstance.containerSpec);
@@ -197,7 +216,7 @@ public class ComponentInstance implements EventHandler<ComponentInstanceEvent>,
     public void transition(ComponentInstance compInstance,
         ComponentInstanceEvent event) {
       compInstance.containerSpec.setState(ContainerState.RUNNING_BUT_UNREADY);
-      compInstance.component.decContainersReady();
+      compInstance.component.decContainersReady(true);
     }
   }
 
@@ -223,14 +242,19 @@ public class ComponentInstance implements EventHandler<ComponentInstanceEvent>,
               .getDiagnostics();
       compInstance.diagnostics.append(containerDiag + System.lineSeparator());
       compInstance.cancelContainerStatusRetriever();
-
+      if (compInstance.getState().equals(ComponentInstanceState.UPGRADING)) {
+        compInstance.component.decContainersThatNeedUpgrade();
+      }
       if (compInstance.getState().equals(READY)) {
-        compInstance.component.decContainersReady();
+        compInstance.component.decContainersReady(true);
       }
       compInstance.component.decRunningContainers();
       boolean shouldExit = false;
-      // check if it exceeds the failure threshold
-      if (comp.currentContainerFailure.get() > comp.maxContainerFailurePerComp) {
+      // Check if it exceeds the failure threshold, but only if health threshold
+      // monitor is not enabled
+      if (!comp.isHealthThresholdMonitorEnabled()
+          && comp.currentContainerFailure
+              .get() > comp.maxContainerFailurePerComp) {
         String exitDiag = MessageFormat.format(
             "[COMPONENT {0}]: Failed {1} times, exceeded the limit - {2}. Shutting down now... "
                 + System.lineSeparator(),
@@ -282,6 +306,23 @@ public class ComponentInstance implements EventHandler<ComponentInstanceEvent>,
         }
         ExitUtil.terminate(-1);
       }
+    }
+  }
+
+  private static class ContainerUpgradeTransition extends BaseTransition {
+
+    @Override
+    public void transition(ComponentInstance compInstance,
+        ComponentInstanceEvent event) {
+      compInstance.containerSpec.setState(ContainerState.UPGRADING);
+      compInstance.component.decContainersReady(false);
+      ComponentEvent upgradeEvent = compInstance.component.getUpgradeEvent();
+      compInstance.scheduler.getContainerLaunchService()
+          .reInitCompInstance(compInstance.scheduler.getApp(), compInstance,
+              compInstance.container,
+              compInstance.component.createLaunchContext(
+                  upgradeEvent.getTargetSpec(),
+                  upgradeEvent.getUpgradeVersion()));
     }
   }
 
@@ -420,7 +461,7 @@ public class ComponentInstance implements EventHandler<ComponentInstanceEvent>,
       component.decRunningContainers();
     }
     if (getState() == READY) {
-      component.decContainersReady();
+      component.decContainersReady(true);
       component.decRunningContainers();
     }
     getCompSpec().removeContainer(containerSpec);
@@ -518,6 +559,24 @@ public class ComponentInstance implements EventHandler<ComponentInstanceEvent>,
     if (containerStatusFuture != null && !containerStatusFuture.isDone()) {
       containerStatusFuture.cancel(true);
     }
+  }
+
+  public String getHostname() {
+    String domain = getComponent().getScheduler().getConfig()
+        .get(RegistryConstants.KEY_DNS_DOMAIN);
+    String hostname;
+    if (domain == null || domain.isEmpty()) {
+      hostname = MessageFormat
+          .format("{0}.{1}.{2}", getCompInstanceName(),
+              getComponent().getContext().service.getName(),
+              RegistryUtils.currentUser());
+    } else {
+      hostname = MessageFormat
+          .format("{0}.{1}.{2}.{3}", getCompInstanceName(),
+              getComponent().getContext().service.getName(),
+              RegistryUtils.currentUser(), domain);
+    }
+    return hostname;
   }
 
   @Override

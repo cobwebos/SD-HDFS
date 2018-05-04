@@ -433,7 +433,7 @@ public class WritableRpcEngine implements RpcEngine {
         throws IOException {
       super(bindAddress, port, null, numHandlers, numReaders,
           queueSizePerHandler, conf,
-          classNameBase(protocolImpl.getClass().getName()), secretManager,
+          serverNameFromClass(protocolImpl.getClass()), secretManager,
           portRangeConfig);
       setAlignmentContext(alignmentContext);
       this.verbose = verbose;

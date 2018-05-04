@@ -677,6 +677,13 @@
   </property>
 
   <property>
+    <description>The range of values above base epoch that the RM will use before
+      wrapping around</description>
+    <name>yarn.resourcemanager.epoch.range</name>
+    <value>0</value>
+  </property>
+
+  <property>
     <description>The list of RM nodes in the cluster when HA is
       enabled. See description of yarn.resourcemanager.ha
       .enabled for full details on how this is used.</description>
@@ -1787,6 +1794,14 @@
   </property>
 
   <property>
+    <description>A configurable value to pass to the Docker Stop command. This value
+      defines the number of seconds between the docker stop command sending
+      a SIGTERM and a SIGKILL.</description>
+    <name>yarn.nodemanager.runtime.linux.docker.stop.grace-period</name>
+    <value>10</value>
+  </property>
+
+  <property>
     <description>The mode in which the Java Container Sandbox should run detailed by
       the JavaSandboxLinuxContainerRuntime.</description>
     <name>yarn.nodemanager.runtime.linux.sandbox-mode</name>
@@ -2491,7 +2506,7 @@
     <description>Time period till which the application collector will be alive
      in NM, after the  application master container finishes.</description>
     <name>yarn.timeline-service.app-collector.linger-period.ms</name>
-    <value>1000</value>
+    <value>60000</value>
   </property>
 
   <property>

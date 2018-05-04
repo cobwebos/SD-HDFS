@@ -22,10 +22,13 @@ package org.apache.hadoop.yarn.server.nodemanager.containermanager.linux.runtime
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.security.Credentials;
+import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.server.nodemanager.Context;
+import org.apache.hadoop.yarn.server.nodemanager.containermanager.linux.runtime.docker.DockerCommand;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.linux.runtime.docker.DockerCommandExecutor;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.linux.runtime.docker.DockerKillCommand;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.linux.runtime.docker.DockerRmCommand;
+import org.apache.hadoop.yarn.server.nodemanager.containermanager.linux.runtime.docker.DockerStartCommand;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.linux.runtime.docker.DockerVolumeCommand;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.resourceplugin.DockerCommandPlugin;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.resourceplugin.ResourcePlugin;
@@ -197,6 +200,7 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
       HOSTNAME_PATTERN);
   private static final Pattern USER_MOUNT_PATTERN = Pattern.compile(
       "(?<=^|,)([^:\\x00]+):([^:\\x00]+):([a-z]+)");
+  private static final int HOST_NAME_LENGTH = 64;
 
   @InterfaceAudience.Private
   public static final String ENV_DOCKER_CONTAINER_IMAGE =
@@ -245,6 +249,7 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
   private int userRemappingGidThreshold;
   private Set<String> capabilities;
   private boolean delayedRemovalAllowed;
+  private int dockerStopGracePeriod;
 
   /**
    * Return whether the given environment variables indicate that the operation
@@ -348,6 +353,10 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
     delayedRemovalAllowed = conf.getBoolean(
         YarnConfiguration.NM_DOCKER_ALLOW_DELAYED_REMOVAL,
         YarnConfiguration.DEFAULT_NM_DOCKER_ALLOW_DELAYED_REMOVAL);
+
+    dockerStopGracePeriod = conf.getInt(
+        YarnConfiguration.NM_DOCKER_STOP_GRACE_PERIOD,
+        YarnConfiguration.DEFAULT_NM_DOCKER_STOP_GRACE_PERIOD);
   }
 
   private Set<String> getDockerCapabilitiesFromConf() throws
@@ -376,7 +385,7 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
       Container container) throws ContainerExecutionException {
     try {
       String commandFile = dockerClient.writeCommandToTempFile(
-          dockerVolumeCommand, container.getContainerId().toString());
+          dockerVolumeCommand, container.getContainerId(), nmContext);
       PrivilegedOperation privOp = new PrivilegedOperation(
           PrivilegedOperation.OperationType.RUN_DOCKER_CMD);
       privOp.appendArgs(commandFile);
@@ -533,6 +542,11 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
       if (!hostnamePattern.matcher(hostname).matches()) {
         throw new ContainerExecutionException("Hostname '" + hostname
             + "' doesn't match docker hostname pattern");
+      }
+      if (hostname.length() > HOST_NAME_LENGTH) {
+        throw new ContainerExecutionException(
+            "Hostname can not be greater than " + HOST_NAME_LENGTH
+                + " characters: " + hostname);
       }
     }
   }
@@ -721,6 +735,7 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
   public void launchContainer(ContainerRuntimeContext ctx)
       throws ContainerExecutionException {
     Container container = ctx.getContainer();
+    ContainerId containerId = container.getContainerId();
     Map<String, String> environment = container.getLaunchContext()
         .getEnvironment();
     String imageName = environment.get(ENV_DOCKER_CONTAINER_IMAGE);
@@ -737,7 +752,7 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
 
     validateImageName(imageName);
 
-    String containerIdStr = container.getContainerId().toString();
+    String containerIdStr = containerId.toString();
     String runAsUser = ctx.getExecutionAttribute(RUN_AS_USER);
     String dockerRunAsUser = runAsUser;
     Path containerWorkDir = ctx.getExecutionAttribute(CONTAINER_WORK_DIR);
@@ -760,7 +775,11 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
           throw new ContainerExecutionException(message);
         }
       }
-      dockerRunAsUser = uid + ":" + gid;
+      if (!allowPrivilegedContainerExecution(container)) {
+        dockerRunAsUser = uid + ":" + gid;
+      } else {
+        dockerRunAsUser = ctx.getExecutionAttribute(USER);
+      }
     }
 
     //List<String> -> stored as List -> fetched/converted to List<String>
@@ -872,7 +891,9 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
     }
 
     if(enableUserReMapping) {
-      runCommand.groupAdd(groups);
+      if (!allowPrivilegedContainerExecution(container)) {
+        runCommand.groupAdd(groups);
+      }
     }
 
     // use plugins to update docker run command.
@@ -889,20 +910,54 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
     }
 
     String commandFile = dockerClient.writeCommandToTempFile(runCommand,
-        containerIdStr);
+        containerId, nmContext);
     PrivilegedOperation launchOp = buildLaunchOp(ctx,
         commandFile, runCommand);
+
+    // Some failures here are acceptable. Let the calling executor decide.
+    launchOp.disableFailureLogging();
 
     try {
       privilegedOperationExecutor.executePrivilegedOperation(null,
           launchOp, null, null, false, false);
     } catch (PrivilegedOperationException e) {
-      LOG.warn("Launch container failed. Exception: ", e);
-      LOG.info("Docker command used: " + runCommand);
-
       throw new ContainerExecutionException("Launch container failed", e
           .getExitCode(), e.getOutput(), e.getErrorOutput());
     }
+  }
+
+  @Override
+  public void relaunchContainer(ContainerRuntimeContext ctx)
+      throws ContainerExecutionException {
+    ContainerId containerId = ctx.getContainer().getContainerId();
+    String containerIdStr = containerId.toString();
+    // Check to see if the container already exists for relaunch
+    DockerCommandExecutor.DockerContainerStatus containerStatus =
+        DockerCommandExecutor.getContainerStatus(containerIdStr, conf,
+            privilegedOperationExecutor, nmContext);
+    if (containerStatus != null &&
+        DockerCommandExecutor.isStartable(containerStatus)) {
+      DockerStartCommand startCommand = new DockerStartCommand(containerIdStr);
+      String commandFile = dockerClient.writeCommandToTempFile(startCommand,
+          containerId, nmContext);
+      PrivilegedOperation launchOp = buildLaunchOp(ctx, commandFile,
+          startCommand);
+
+      // Some failures here are acceptable. Let the calling executor decide.
+      launchOp.disableFailureLogging();
+
+      try {
+        privilegedOperationExecutor.executePrivilegedOperation(null,
+            launchOp, null, null, false, false);
+      } catch (PrivilegedOperationException e) {
+        throw new ContainerExecutionException("Relaunch container failed", e
+            .getExitCode(), e.getOutput(), e.getErrorOutput());
+      }
+    } else {
+      throw new ContainerExecutionException("Container is not in a startable "
+          + "state, unable to relaunch: " + containerIdStr);
+    }
+
   }
 
   /**
@@ -989,12 +1044,13 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
   // ipAndHost[1] contains the hostname.
   @Override
   public String[] getIpAndHost(Container container) {
-    String containerId = container.getContainerId().toString();
+    ContainerId containerId = container.getContainerId();
+    String containerIdStr = containerId.toString();
     DockerInspectCommand inspectCommand =
-        new DockerInspectCommand(containerId).getIpAndHost();
+        new DockerInspectCommand(containerIdStr).getIpAndHost();
     try {
       String commandFile = dockerClient.writeCommandToTempFile(inspectCommand,
-          containerId);
+          containerId, nmContext);
       PrivilegedOperation privOp = new PrivilegedOperation(
           PrivilegedOperation.OperationType.RUN_DOCKER_CMD);
       privOp.appendArgs(commandFile);
@@ -1052,7 +1108,7 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
 
 
   private PrivilegedOperation buildLaunchOp(ContainerRuntimeContext ctx,
-      String commandFile, DockerRunCommand runCommand) {
+      String commandFile, DockerCommand command) {
 
     String runAsUser = ctx.getExecutionAttribute(RUN_AS_USER);
     String containerIdStr = ctx.getContainer().getContainerId().toString();
@@ -1091,7 +1147,7 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
       launchOp.appendArgs(tcCommandFile);
     }
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Launching container with cmd: " + runCommand);
+      LOG.debug("Launching container with cmd: " + command);
     }
 
     return launchOp;
@@ -1136,11 +1192,12 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
       throws ContainerExecutionException {
     DockerCommandExecutor.DockerContainerStatus containerStatus =
         DockerCommandExecutor.getContainerStatus(containerId, conf,
-            privilegedOperationExecutor);
+            privilegedOperationExecutor, nmContext);
     if (DockerCommandExecutor.isStoppable(containerStatus)) {
-      DockerStopCommand dockerStopCommand = new DockerStopCommand(containerId);
+      DockerStopCommand dockerStopCommand = new DockerStopCommand(
+          containerId).setGracePeriod(dockerStopGracePeriod);
       DockerCommandExecutor.executeDockerCommand(dockerStopCommand, containerId,
-          env, conf, privilegedOperationExecutor, false);
+          env, conf, privilegedOperationExecutor, false, nmContext);
     } else {
       if (LOG.isDebugEnabled()) {
         LOG.debug(
@@ -1154,12 +1211,12 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
       ContainerExecutor.Signal signal) throws ContainerExecutionException {
     DockerCommandExecutor.DockerContainerStatus containerStatus =
         DockerCommandExecutor.getContainerStatus(containerId, conf,
-            privilegedOperationExecutor);
+            privilegedOperationExecutor, nmContext);
     if (DockerCommandExecutor.isKillable(containerStatus)) {
       DockerKillCommand dockerKillCommand =
           new DockerKillCommand(containerId).setSignal(signal.name());
       DockerCommandExecutor.executeDockerCommand(dockerKillCommand, containerId,
-          env, conf, privilegedOperationExecutor, false);
+          env, conf, privilegedOperationExecutor, false, nmContext);
     } else {
       if (LOG.isDebugEnabled()) {
         LOG.debug(
@@ -1179,11 +1236,11 @@ public class DockerLinuxContainerRuntime implements LinuxContainerRuntime {
     } else {
       DockerCommandExecutor.DockerContainerStatus containerStatus =
           DockerCommandExecutor.getContainerStatus(containerId, conf,
-              privilegedOperationExecutor);
+              privilegedOperationExecutor, nmContext);
       if (DockerCommandExecutor.isRemovable(containerStatus)) {
         DockerRmCommand dockerRmCommand = new DockerRmCommand(containerId);
         DockerCommandExecutor.executeDockerCommand(dockerRmCommand, containerId,
-            env, conf, privilegedOperationExecutor, false);
+            env, conf, privilegedOperationExecutor, false, nmContext);
       }
     }
   }

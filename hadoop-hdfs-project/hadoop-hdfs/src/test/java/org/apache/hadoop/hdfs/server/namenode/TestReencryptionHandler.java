@@ -27,12 +27,12 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.KMSUtil;
 import org.apache.hadoop.util.StopWatch;
+import org.apache.hadoop.test.Whitebox;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 import org.mockito.Mockito;
-import org.mockito.internal.util.reflection.Whitebox;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
 
@@ -75,6 +75,10 @@ public class TestReencryptionHandler {
         CommonConfigurationKeysPublic.HADOOP_SECURITY_KEY_PROVIDER_PATH);
     Mockito.when(ezm.getProvider()).thenReturn(
         KeyProviderCryptoExtension.createKeyProviderCryptoExtension(kp));
+    FSDirectory fsd = Mockito.mock(FSDirectory.class);
+    FSNamesystem fns = Mockito.mock(FSNamesystem.class);
+    Mockito.when(fsd.getFSNamesystem()).thenReturn(fns);
+    Mockito.when(ezm.getFSDirectory()).thenReturn(fsd);
     return new ReencryptionHandler(ezm, conf);
   }
 
@@ -99,7 +103,7 @@ public class TestReencryptionHandler {
     Whitebox.setInternalState(rh, "throttleTimerLocked", mockLocked);
     Whitebox.setInternalState(rh, "taskQueue", queue);
     final StopWatch sw = new StopWatch().start();
-    rh.throttle();
+    rh.getTraverser().throttle();
     sw.stop();
     assertTrue("should have throttled for at least 8 second",
         sw.now(TimeUnit.MILLISECONDS) > 8000);
@@ -130,7 +134,7 @@ public class TestReencryptionHandler {
         submissions = new HashMap<>();
     Whitebox.setInternalState(rh, "submissions", submissions);
     StopWatch sw = new StopWatch().start();
-    rh.throttle();
+    rh.getTraverser().throttle();
     sw.stop();
     assertTrue("should not have throttled",
         sw.now(TimeUnit.MILLISECONDS) < 1000);
@@ -189,7 +193,7 @@ public class TestReencryptionHandler {
     Whitebox.setInternalState(rh, "submissions", submissions);
     final StopWatch sw = new StopWatch().start();
     removeTaskThread.start();
-    rh.throttle();
+    rh.getTraverser().throttle();
     sw.stop();
     LOG.info("Throttle completed, consumed {}", sw.now(TimeUnit.MILLISECONDS));
     assertTrue("should have throttled for at least 3 second",

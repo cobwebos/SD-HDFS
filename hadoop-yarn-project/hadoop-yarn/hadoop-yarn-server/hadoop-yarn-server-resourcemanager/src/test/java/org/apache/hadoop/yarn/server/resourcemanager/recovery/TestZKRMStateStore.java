@@ -210,6 +210,7 @@ public class TestZKRMStateStore extends RMStateStoreTestBase {
           curatorTestingServer.getConnectString());
       conf.set(YarnConfiguration.ZK_RM_STATE_STORE_PARENT_PATH, workingZnode);
       conf.setLong(YarnConfiguration.RM_EPOCH, epoch);
+      conf.setLong(YarnConfiguration.RM_EPOCH_RANGE, getEpochRange());
       this.store = new TestZKRMStateStoreInternal(conf, workingZnode);
       return this.store;
     }
@@ -790,7 +791,7 @@ public class TestZKRMStateStore extends RMStateStoreTestBase {
       long finishTime, boolean isFinished) {
     return ApplicationStateData.newInstance(submitTime, startTime, "test",
         ctxt, isFinished ? RMAppState.FINISHED : null, isFinished ?
-        "appDiagnostics" : "", isFinished ? finishTime : 0, null);
+        "appDiagnostics" : "", 0, isFinished ? finishTime : 0, null);
   }
 
   private static ApplicationAttemptStateData createFinishedAttempt(

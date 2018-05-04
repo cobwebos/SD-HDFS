@@ -1279,6 +1279,15 @@ char *construct_docker_command(const char *command_file) {
   int ret = 0;
   size_t command_size = MIN(sysconf(_SC_ARG_MAX), 128*1024);
   char *buffer = alloc_and_clear_memory(command_size, sizeof(char));
+
+  uid_t user = geteuid();
+  gid_t group = getegid();
+  if (change_effective_user(nm_uid, nm_gid) != 0) {
+    fprintf(ERRORFILE, "Cannot change effective user to nm");
+    fflush(ERRORFILE);
+    exit(SETUID_OPER_FAILED);
+  }
+
   ret = get_docker_command(command_file, &CFG, buffer, command_size);
   if (ret != 0) {
     fprintf(ERRORFILE, "Error constructing docker command, docker error code=%d, error message='%s'\n", ret,
@@ -1286,6 +1295,13 @@ char *construct_docker_command(const char *command_file) {
     fflush(ERRORFILE);
     exit(DOCKER_RUN_FAILED);
   }
+
+  if (change_effective_user(user, group)) {
+    fprintf(ERRORFILE, "Cannot change effective user from nm back to original");
+    fflush(ERRORFILE);
+    exit(SETUID_OPER_FAILED);
+  }
+
   return buffer;
 }
 
@@ -1314,6 +1330,34 @@ int run_docker(const char *command_file) {
     exit_code = 0;
   }
   return exit_code;
+}
+
+int exec_docker_command(char *docker_command, char **argv,
+    int argc, int optind) {
+  int i;
+  char* docker_binary = get_docker_binary(&CFG);
+  size_t command_size = argc - optind + 2;
+
+  char **args = alloc_and_clear_memory(command_size + 1, sizeof(char));
+  args[0] = docker_binary;
+  args[1] = docker_command;
+  for(i = 2; i < command_size; i++) {
+    args[i] = (char *) argv[i];
+  }
+  args[i] = NULL;
+
+  execvp(docker_binary, args);
+
+  // will only get here if execvp fails
+  fprintf(ERRORFILE, "Couldn't execute the container launch with args %s - %s\n",
+      docker_binary, strerror(errno));
+  fflush(LOGFILE);
+  fflush(ERRORFILE);
+
+  free(docker_binary);
+  free(args);
+
+  return DOCKER_RUN_FAILED;
 }
 
 int create_script_paths(const char *work_dir,
@@ -1542,7 +1586,7 @@ int launch_docker_container_as_user(const char * user, const char *app_id,
   fprintf(LOGFILE, "Launching docker container...\n");
   fprintf(LOGFILE, "Docker run command: %s\n", docker_command_with_binary);
   FILE* start_docker = popen(docker_command_with_binary, "r");
-  if (pclose (start_docker) != 0)
+  if (WEXITSTATUS(pclose (start_docker)) != 0)
   {
     fprintf (ERRORFILE,
      "Could not invoke docker %s.\n", docker_command_with_binary);
