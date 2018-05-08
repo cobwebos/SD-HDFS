@@ -26,7 +26,6 @@ import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.ExecutionType;
-import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.event.AsyncDispatcher;
 import org.apache.hadoop.yarn.security.ContainerTokenIdentifier;
 import org.apache.hadoop.yarn.server.nodemanager.NodeManager.NMContext;
@@ -64,8 +63,8 @@ public class TestContainerSchedulerRecovery {
 
   @Mock private ContainerId containerId;
 
-  @Mock private AllocationBasedResourceTracker
-      allocationBasedResourceTracker;
+  @Mock private AllocationBasedResourceUtilizationTracker
+      allocationBasedResourceUtilizationTracker;
 
   @InjectMocks private ContainerScheduler tempContainerScheduler =
       new ContainerScheduler(context, dispatcher, metrics, 0);
@@ -76,13 +75,12 @@ public class TestContainerSchedulerRecovery {
     MockitoAnnotations.initMocks(this);
     spy = spy(tempContainerScheduler);
     when(container.getContainerId()).thenReturn(containerId);
-    when(container.getResource()).thenReturn(Resource.newInstance(1024, 1));
     when(containerId.getApplicationAttemptId()).thenReturn(appAttemptId);
     when(containerId.getApplicationAttemptId().getApplicationId())
         .thenReturn(appId);
     when(containerId.getContainerId()).thenReturn(123L);
-    doNothing().when(allocationBasedResourceTracker)
-        .containerLaunched(container);
+    doNothing().when(allocationBasedResourceUtilizationTracker)
+        .addContainerResources(container);
   }
 
   @After public void tearDown() {
@@ -103,8 +101,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(1, spy.getNumQueuedGuaranteedContainers());
     assertEquals(0, spy.getNumQueuedOpportunisticContainers());
     assertEquals(0, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(0))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(0))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as QUEUED, OPPORTUNISTIC,
@@ -122,8 +120,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(0, spy.getNumQueuedGuaranteedContainers());
     assertEquals(1, spy.getNumQueuedOpportunisticContainers());
     assertEquals(0, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(0))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(0))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as PAUSED, GUARANTEED,
@@ -141,8 +139,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(1, spy.getNumQueuedGuaranteedContainers());
     assertEquals(0, spy.getNumQueuedOpportunisticContainers());
     assertEquals(0, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(0))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(0))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as PAUSED, OPPORTUNISTIC,
@@ -160,8 +158,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(0, spy.getNumQueuedGuaranteedContainers());
     assertEquals(1, spy.getNumQueuedOpportunisticContainers());
     assertEquals(0, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(0))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(0))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as LAUNCHED, GUARANTEED,
@@ -179,8 +177,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(0, spy.getNumQueuedGuaranteedContainers());
     assertEquals(0, spy.getNumQueuedOpportunisticContainers());
     assertEquals(1, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(1))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(1))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as LAUNCHED, OPPORTUNISTIC,
@@ -198,8 +196,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(0, spy.getNumQueuedGuaranteedContainers());
     assertEquals(0, spy.getNumQueuedOpportunisticContainers());
     assertEquals(1, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(1))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(1))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as REQUESTED, GUARANTEED,
@@ -217,8 +215,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(0, spy.getNumQueuedGuaranteedContainers());
     assertEquals(0, spy.getNumQueuedOpportunisticContainers());
     assertEquals(0, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(0))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(0))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as REQUESTED, OPPORTUNISTIC,
@@ -236,8 +234,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(0, spy.getNumQueuedGuaranteedContainers());
     assertEquals(0, spy.getNumQueuedOpportunisticContainers());
     assertEquals(0, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(0))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(0))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as COMPLETED, GUARANTEED,
@@ -255,8 +253,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(0, spy.getNumQueuedGuaranteedContainers());
     assertEquals(0, spy.getNumQueuedOpportunisticContainers());
     assertEquals(0, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(0))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(0))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as COMPLETED, OPPORTUNISTIC,
@@ -274,8 +272,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(0, spy.getNumQueuedGuaranteedContainers());
     assertEquals(0, spy.getNumQueuedOpportunisticContainers());
     assertEquals(0, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(0))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(0))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as GUARANTEED but no executionType set,
@@ -292,8 +290,8 @@ public class TestContainerSchedulerRecovery {
     assertEquals(0, spy.getNumQueuedGuaranteedContainers());
     assertEquals(0, spy.getNumQueuedOpportunisticContainers());
     assertEquals(0, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(0))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(0))
+        .addContainerResources(container);
   }
 
   /*Test if a container is recovered as PAUSED but no executionType set,
@@ -310,7 +308,7 @@ public class TestContainerSchedulerRecovery {
     assertEquals(0, spy.getNumQueuedGuaranteedContainers());
     assertEquals(0, spy.getNumQueuedOpportunisticContainers());
     assertEquals(0, spy.getNumRunningContainers());
-    Mockito.verify(allocationBasedResourceTracker, Mockito.times(0))
-        .containerLaunched(container);
+    Mockito.verify(allocationBasedResourceUtilizationTracker, Mockito.times(0))
+        .addContainerResources(container);
   }
 }
