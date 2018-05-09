@@ -19,6 +19,7 @@
 package org.apache.hadoop.ozone.client.protocol;
 
 import org.apache.hadoop.fs.StorageType;
+import org.apache.hadoop.hdds.scm.ScmConfigKeys;
 import org.apache.hadoop.ozone.OzoneAcl;
 import org.apache.hadoop.ozone.client.BucketArgs;
 import org.apache.hadoop.ozone.client.OzoneBucket;
@@ -33,6 +34,7 @@ import org.apache.hadoop.ozone.client.io.OzoneOutputStream;
 
 import java.io.IOException;
 import java.util.List;
+import org.apache.hadoop.security.KerberosInfo;
 
 /**
  * An implementer of this interface is capable of connecting to Ozone Cluster
@@ -42,6 +44,7 @@ import java.util.List;
  * includes: {@link org.apache.hadoop.ozone.client.rpc.RpcClient} for RPC and
  * {@link  org.apache.hadoop.ozone.client.rest.RestClient} for REST.
  */
+@KerberosInfo(serverPrincipal = ScmConfigKeys.OZONE_SCM_KERBEROS_PRINCIPAL_KEY)
 public interface ClientProtocol {
 
   /**

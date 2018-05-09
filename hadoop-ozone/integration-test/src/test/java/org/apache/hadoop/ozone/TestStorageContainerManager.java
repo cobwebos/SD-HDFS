@@ -43,6 +43,7 @@ import org.apache.hadoop.hdds.scm.block.SCMBlockDeletingService;
 import org.apache.hadoop.hdds.scm.exceptions.SCMException;
 import org.apache.hadoop.hdds.scm.XceiverClientManager;
 import org.apache.hadoop.hdds.scm.ScmInfo;
+import org.apache.hadoop.security.authentication.client.AuthenticationException;
 import org.junit.Rule;
 import org.junit.Assert;
 import org.junit.Test;
@@ -407,7 +408,8 @@ public class TestStorageContainerManager {
   }
 
   @Test
-  public void testSCMInitializationFailure() throws IOException {
+  public void testSCMInitializationFailure()
+      throws IOException, AuthenticationException {
     OzoneConfiguration conf = new OzoneConfiguration();
     final String path =
         GenericTestUtils.getTempPath(UUID.randomUUID().toString());

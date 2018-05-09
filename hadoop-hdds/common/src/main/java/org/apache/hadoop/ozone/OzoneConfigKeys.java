@@ -256,6 +256,11 @@ public final class OzoneConfigKeys {
       "hdds.datanode.storage.utilization.critical.threshold";
   public static final double
       HDDS_DATANODE_STORAGE_UTILIZATION_CRITICAL_THRESHOLD_DEFAULT = 0.75;
+
+  public static final String OZONE_SECURITY_ENABLED_KEY = "ozone.security.enabled";
+  public static final String OZONE_SYSTEM_TAGS_KEY = "ozone.system.tags";
+  public static final boolean OZONE_SECURITY_ENABLED_DEFAULT = false;
+
   /**
    * There is no need to instantiate this class.
    */

@@ -28,9 +28,11 @@ import com.google.common.cache.RemovalListener;
 import com.google.common.cache.RemovalNotification;
 import com.google.protobuf.BlockingService;
 import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdds.HddsUtils;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos.NodeState;
+import org.apache.hadoop.hdds.scm.HddsServerUtil;
 import org.apache.hadoop.hdds.scm.block.BlockManager;
 import org.apache.hadoop.hdds.scm.block.BlockManagerImpl;
 import org.apache.hadoop.hdds.scm.container.ContainerMapping;
@@ -52,6 +54,9 @@ import org.apache.hadoop.ozone.OzoneConfigKeys;
 import org.apache.hadoop.ozone.common.Storage.StorageState;
 import org.apache.hadoop.ozone.common.StorageInfo;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod;
+import org.apache.hadoop.security.SecurityUtil;
+import org.apache.hadoop.security.authentication.client.AuthenticationException;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.apache.hadoop.util.StringUtils;
 import org.slf4j.Logger;
@@ -70,6 +75,10 @@ import java.util.concurrent.TimeUnit;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_DB_CACHE_SIZE_DEFAULT;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_DB_CACHE_SIZE_MB;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_ENABLED;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_SECURITY_ENABLED_DEFAULT;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_SECURITY_ENABLED_KEY;
+import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_KERBEROS_PRINCIPAL_KEY;
+import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_KERBEROS_KEYTAB_FILE_KEY;
 import static org.apache.hadoop.util.ExitUtil.terminate;
 
 /**
@@ -140,6 +149,7 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
    * Key = DatanodeUuid, value = ContainerStat.
    */
   private Cache<String, ContainerStat> containerReportCache;
+  private Configuration scmConf;
 
   /**
    * Creates a new StorageContainerManager. Configuration will be updated
@@ -148,13 +158,19 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
    *
    * @param conf configuration
    */
-  private StorageContainerManager(OzoneConfiguration conf) throws IOException {
+  private StorageContainerManager(OzoneConfiguration conf)
+      throws IOException, AuthenticationException {
 
     final int cacheSize = conf.getInt(OZONE_SCM_DB_CACHE_SIZE_MB,
         OZONE_SCM_DB_CACHE_SIZE_DEFAULT);
-
+    this.scmConf = conf;
     StorageContainerManager.initMetrics();
     initContainerReportCache(conf);
+    // Authenticate SCM if security is enabled
+    if (this.scmConf.getBoolean(OZONE_SECURITY_ENABLED_KEY,
+        OZONE_SECURITY_ENABLED_DEFAULT)) {
+      loginAsSCMUser(this.scmConf);
+    }
 
     scmStorage = new SCMStorage(conf);
     if (scmStorage.getState() != StorageState.INITIALIZED) {
@@ -182,6 +198,33 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
     httpServer = new StorageContainerManagerHttpServer(conf);
 
     registerMXBean();
+  }
+
+  /**
+   * Login as the configured user for SCM.
+   *
+   * @param conf
+   */
+  private void loginAsSCMUser(Configuration conf)
+      throws IOException, AuthenticationException {
+    LOG.debug("Ozone security is enabled. Attempting login for SCM user. "
+            + "Principal: {}, keytab: {}", this.scmConf.get
+            (OZONE_SCM_KERBEROS_PRINCIPAL_KEY),
+        this.scmConf.get(OZONE_SCM_KERBEROS_KEYTAB_FILE_KEY));
+
+    if (SecurityUtil.getAuthenticationMethod(conf).equals
+        (AuthenticationMethod.KERBEROS)) {
+      UserGroupInformation.setConfiguration(this.scmConf);
+      InetSocketAddress socAddr = HddsServerUtil
+          .getScmBlockClientBindAddress(conf);
+      SecurityUtil.login(conf, OZONE_SCM_KERBEROS_KEYTAB_FILE_KEY,
+          OZONE_SCM_KERBEROS_PRINCIPAL_KEY, socAddr.getHostName());
+    } else {
+      throw new AuthenticationException(SecurityUtil.getAuthenticationMethod
+          (conf) + " authentication method not support. "
+          + "SCM user login failed.");
+    }
+    LOG.info("SCM login successful.");
   }
 
   /**
@@ -268,7 +311,7 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
 
   public static StorageContainerManager createSCM(String[] argv,
       OzoneConfiguration conf)
-      throws IOException {
+      throws IOException, AuthenticationException {
     if (!HddsUtils.isHddsEnabled(conf)) {
       System.err.println(
           "SCM cannot be started in secure mode or when " + OZONE_ENABLED + "" +
