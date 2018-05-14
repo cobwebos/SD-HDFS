@@ -17,6 +17,7 @@
  */
 package org.apache.hadoop.ozone.ksm.protocol;
 
+import org.apache.hadoop.hdds.HddsConfigKeys;
 import org.apache.hadoop.ozone.ksm.helpers.KsmBucketArgs;
 import org.apache.hadoop.ozone.ksm.helpers.KsmBucketInfo;
 import org.apache.hadoop.ozone.ksm.helpers.KsmKeyArgs;
@@ -29,10 +30,13 @@ import org.apache.hadoop.ozone.protocol.proto
     .KeySpaceManagerProtocolProtos.OzoneAclInfo;
 import java.io.IOException;
 import java.util.List;
+import org.apache.hadoop.security.KerberosInfo;
 
 /**
  * Protocol to talk to KSM.
  */
+@KerberosInfo(
+    serverPrincipal = HddsConfigKeys.HDDS_KSM_KERBEROS_PRINCIPAL_KEY)
 public interface KeySpaceManagerProtocol {
 
   /**

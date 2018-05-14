@@ -78,4 +78,9 @@ public final class KSMConfigKeys {
   public static final String OZONE_KEY_DELETING_LIMIT_PER_TASK =
       "ozone.key.deleting.limit.per.task";
   public static final int OZONE_KEY_DELETING_LIMIT_PER_TASK_DEFAULT = 1000;
+
+  public static final String KSM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL =
+      "hdds.ksm.web.authentication.kerberos.principal";
+  public static final String KSM_WEB_AUTHENTICATION_KERBEROS_KEYTAB_FILE =
+      "hdds.ksm.web.authentication.kerberos.keytab";
 }

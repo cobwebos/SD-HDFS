@@ -27,6 +27,7 @@ import org.apache.hadoop.ipc.Client;
 import org.apache.hadoop.ipc.ProtobufRpcEngine;
 import org.apache.hadoop.ipc.RPC;
 import org.apache.hadoop.hdds.server.ServiceRuntimeInfoImpl;
+import org.apache.hadoop.ozone.OzoneConfigKeys;
 import org.apache.hadoop.ozone.common.Storage.StorageState;
 import org.apache.hadoop.ozone.ksm.exceptions.KSMException;
 import org.apache.hadoop.ozone.ksm.helpers.KsmBucketArgs;
@@ -60,7 +61,10 @@ import org.apache.hadoop.hdds.scm.protocolPB.ScmBlockLocationProtocolPB;
 import org.apache.hadoop.hdds.scm.protocolPB
     .StorageContainerLocationProtocolClientSideTranslatorPB;
 import org.apache.hadoop.hdds.scm.protocolPB.StorageContainerLocationProtocolPB;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod;
+import org.apache.hadoop.security.authentication.client.AuthenticationException;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.apache.hadoop.util.StringUtils;
 
@@ -84,6 +88,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_ENABLED;
+import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_KSM_KERBEROS_PRINCIPAL_KEY;
+import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_KSM_KERBEROS_KEYTAB_FILE_KEY;
 import static org.apache.hadoop.ozone.ksm.KSMConfigKeys
     .OZONE_KSM_ADDRESS_KEY;
 import static org.apache.hadoop.ozone.ksm.KSMConfigKeys
@@ -103,7 +109,7 @@ import static org.apache.hadoop.util.ExitUtil.terminate;
 @InterfaceAudience.LimitedPrivate({"HDFS", "CBLOCK", "OZONE", "HBASE"})
 public final class KeySpaceManager extends ServiceRuntimeInfoImpl
     implements KeySpaceManagerProtocol, KSMMXBean {
-  private static final Logger LOG =
+  public static final Logger LOG =
       LoggerFactory.getLogger(KeySpaceManager.class);
 
   private static final String USAGE =
@@ -154,8 +160,8 @@ public final class KeySpaceManager extends ServiceRuntimeInfoImpl
   private KeySpaceManager(OzoneConfiguration conf) throws IOException {
     Preconditions.checkNotNull(conf);
     configuration = conf;
+
     ksmStorage = new KSMStorage(conf);
-    scmBlockClient = getScmBlockClient(configuration);
     scmContainerClient = getScmContainerClient(configuration);
     if (ksmStorage.getState() != StorageState.INITIALIZED) {
       throw new KSMException("KSM not initialized.",
@@ -163,6 +169,7 @@ public final class KeySpaceManager extends ServiceRuntimeInfoImpl
     }
 
     // verifies that the SCM info in the KSM Version file is correct.
+    scmBlockClient = getScmBlockClient(configuration);
     ScmInfo scmInfo = scmBlockClient.getScmInfo();
     if (!(scmInfo.getClusterId().equals(ksmStorage.getClusterID()) && scmInfo
         .getScmId().equals(ksmStorage.getScmId()))) {
@@ -192,6 +199,34 @@ public final class KeySpaceManager extends ServiceRuntimeInfoImpl
         new KeyManagerImpl(scmBlockClient, metadataManager, configuration,
             ksmStorage.getKsmId());
     httpServer = new KeySpaceManagerHttpServer(configuration, this);
+  }
+
+  /**
+   * Login KSM service user if security and Kerberos are enabled.
+   *
+   * @param  conf
+   * @throws IOException, AuthenticationException
+   */
+  private static void loginKSMUser(OzoneConfiguration conf)
+      throws IOException, AuthenticationException {
+
+    if (SecurityUtil.getAuthenticationMethod(conf).equals
+        (AuthenticationMethod.KERBEROS)) {
+      LOG.debug("Ozone security is enabled. Attempting login for KSM user. "
+              + "Principal: {},keytab: {}", conf.get(HDDS_KSM_KERBEROS_PRINCIPAL_KEY),
+          conf.get(HDDS_KSM_KERBEROS_KEYTAB_FILE_KEY));
+
+      UserGroupInformation.setConfiguration(conf);
+
+      InetSocketAddress socAddr = getKsmAddress(conf);
+      SecurityUtil.login(conf, HDDS_KSM_KERBEROS_KEYTAB_FILE_KEY,
+          HDDS_KSM_KERBEROS_PRINCIPAL_KEY, socAddr.getHostName());
+    } else {
+      throw new AuthenticationException(SecurityUtil.getAuthenticationMethod
+          (conf) + " authentication method not supported. KSM user login "
+          + "failed.");
+    }
+    LOG.info("KSM login successful.");
   }
 
   /**
@@ -338,7 +373,7 @@ public final class KeySpaceManager extends ServiceRuntimeInfoImpl
    */
 
   public static KeySpaceManager createKSM(String[] argv,
-      OzoneConfiguration conf) throws IOException {
+      OzoneConfiguration conf) throws IOException, AuthenticationException {
     if (!isHddsEnabled(conf)) {
       System.err.println("KSM cannot be started in secure mode or when " +
           OZONE_ENABLED + " is set to false");
@@ -349,6 +384,10 @@ public final class KeySpaceManager extends ServiceRuntimeInfoImpl
       printUsage(System.err);
       terminate(1);
       return null;
+    }
+    // Authenticate KSM if security is enabled
+    if (conf.getBoolean(OzoneConfigKeys.OZONE_SECURITY_ENABLED_KEY, true)) {
+      loginKSMUser(conf);
     }
     switch (startOpt) {
     case CREATEOBJECTSTORE:
@@ -444,7 +483,13 @@ public final class KeySpaceManager extends ServiceRuntimeInfoImpl
     metadataManager.start();
     keyManager.start();
     ksmRpcServer.start();
-    httpServer.start();
+    try {
+      httpServer.start();
+    } catch (Exception ex) {
+      // Allow KSM to start as Http Server failure is not fatal.
+      LOG.error("KSM HttpServer failed to start.", ex);
+    }
+
     registerMXBean();
     setStartTime();
   }

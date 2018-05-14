@@ -18,7 +18,6 @@
 package org.apache.hadoop.ozone.ksm;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.ozone.OzoneConfigKeys;
 import org.apache.hadoop.ozone.OzoneConsts;
 import org.apache.hadoop.hdds.server.BaseHttpServer;
 
@@ -65,11 +64,11 @@ public class KeySpaceManagerHttpServer extends BaseHttpServer {
   }
 
   @Override protected String getKeytabFile() {
-    return KSMConfigKeys.OZONE_KSM_KEYTAB_FILE;
+    return KSMConfigKeys.KSM_WEB_AUTHENTICATION_KERBEROS_KEYTAB_FILE;
   }
 
   @Override protected String getSpnegoPrincipal() {
-    return OzoneConfigKeys.OZONE_SCM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL;
+    return KSMConfigKeys.KSM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL;
   }
 
   @Override protected String getEnabledKey() {
