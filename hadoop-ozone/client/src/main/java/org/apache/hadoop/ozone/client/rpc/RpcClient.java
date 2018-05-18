@@ -122,8 +122,7 @@ public class RpcClient implements ClientProtocol {
     this.keySpaceManagerClient =
         new KeySpaceManagerProtocolClientSideTranslatorPB(
             RPC.getProxy(KeySpaceManagerProtocolPB.class, ksmVersion,
-                ksmAddress, UserGroupInformation.getCurrentUser(), conf,
-                NetUtils.getDefaultSocketFactory(conf),
+                ksmAddress, ugi, conf, NetUtils.getDefaultSocketFactory(conf),
                 Client.getRpcTimeout(conf)));
 
     long scmVersion =
@@ -134,8 +133,7 @@ public class RpcClient implements ClientProtocol {
     this.storageContainerLocationClient =
         new StorageContainerLocationProtocolClientSideTranslatorPB(
             RPC.getProxy(StorageContainerLocationProtocolPB.class, scmVersion,
-                scmAddress, UserGroupInformation.getCurrentUser(), conf,
-                NetUtils.getDefaultSocketFactory(conf),
+                scmAddress, ugi, conf, NetUtils.getDefaultSocketFactory(conf),
                 Client.getRpcTimeout(conf)));
 
     this.xceiverClientManager = new XceiverClientManager(conf);

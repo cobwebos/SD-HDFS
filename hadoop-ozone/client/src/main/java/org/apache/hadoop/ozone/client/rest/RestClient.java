@@ -111,7 +111,7 @@ public class RestClient implements ClientProtocol {
     try {
       Preconditions.checkNotNull(conf);
       this.conf = conf;
-
+      this.ugi = UserGroupInformation.getCurrentUser();
       long socketTimeout = conf.getTimeDuration(
           OzoneConfigKeys.OZONE_CLIENT_SOCKET_TIMEOUT,
           OzoneConfigKeys.OZONE_CLIENT_SOCKET_TIMEOUT_DEFAULT,
@@ -147,7 +147,7 @@ public class RestClient implements ClientProtocol {
                   .setConnectTimeout(Math.toIntExact(connectionTimeout))
                   .build())
           .build();
-      this.ugi = UserGroupInformation.getCurrentUser();
+
       this.userRights = conf.getEnum(KSMConfigKeys.OZONE_KSM_USER_RIGHTS,
           KSMConfigKeys.OZONE_KSM_USER_RIGHTS_DEFAULT);
 
