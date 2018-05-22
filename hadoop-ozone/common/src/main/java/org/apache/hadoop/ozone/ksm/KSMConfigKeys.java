@@ -49,8 +49,6 @@ public final class KSMConfigKeys {
       "ozone.ksm.http-address";
   public static final String OZONE_KSM_HTTPS_ADDRESS_KEY =
       "ozone.ksm.https-address";
-  public static final String OZONE_KSM_KEYTAB_FILE =
-      "ozone.ksm.keytab.file";
   public static final String OZONE_KSM_HTTP_BIND_HOST_DEFAULT = "0.0.0.0";
   public static final int OZONE_KSM_HTTP_BIND_PORT_DEFAULT = 9874;
   public static final int OZONE_KSM_HTTPS_BIND_PORT_DEFAULT = 9875;
@@ -79,8 +77,8 @@ public final class KSMConfigKeys {
       "ozone.key.deleting.limit.per.task";
   public static final int OZONE_KEY_DELETING_LIMIT_PER_TASK_DEFAULT = 1000;
 
-  public static final String KSM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL =
-      "hdds.ksm.web.authentication.kerberos.principal";
-  public static final String KSM_WEB_AUTHENTICATION_KERBEROS_KEYTAB_FILE =
-      "hdds.ksm.web.authentication.kerberos.keytab";
+  public static final String OZONE_OM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL =
+      "ozone.om.web.authentication.kerberos.principal";
+  public static final String OZONE_OM_WEB_AUTHENTICATION_KERBEROS_KEYTAB_FILE =
+      "ozone.om.web.authentication.kerberos.keytab";
 }

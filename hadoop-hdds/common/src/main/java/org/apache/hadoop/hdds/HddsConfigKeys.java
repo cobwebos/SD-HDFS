@@ -20,8 +20,4 @@ package org.apache.hadoop.hdds;
 public final class HddsConfigKeys {
   private HddsConfigKeys() {
   }
-  public static final String HDDS_KSM_KERBEROS_KEYTAB_FILE_KEY = "hdds.ksm."
-      + "kerberos.keytab.file";
-  public static final String HDDS_KSM_KERBEROS_PRINCIPAL_KEY = "hdds.ksm"
-      + ".kerberos.principal";
 }

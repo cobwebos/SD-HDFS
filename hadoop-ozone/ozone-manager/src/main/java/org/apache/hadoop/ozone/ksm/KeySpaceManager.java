@@ -88,8 +88,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_ENABLED;
-import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_KSM_KERBEROS_PRINCIPAL_KEY;
-import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_KSM_KERBEROS_KEYTAB_FILE_KEY;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_OM_KERBEROS_PRINCIPAL_KEY;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_OM_KERBEROS_KEYTAB_FILE_KEY;
 import static org.apache.hadoop.ozone.ksm.KSMConfigKeys
     .OZONE_KSM_ADDRESS_KEY;
 import static org.apache.hadoop.ozone.ksm.KSMConfigKeys
@@ -213,14 +213,15 @@ public final class KeySpaceManager extends ServiceRuntimeInfoImpl
     if (SecurityUtil.getAuthenticationMethod(conf).equals
         (AuthenticationMethod.KERBEROS)) {
       LOG.debug("Ozone security is enabled. Attempting login for KSM user. "
-              + "Principal: {},keytab: {}", conf.get(HDDS_KSM_KERBEROS_PRINCIPAL_KEY),
-          conf.get(HDDS_KSM_KERBEROS_KEYTAB_FILE_KEY));
+              + "Principal: {},keytab: {}", conf.get(
+          OZONE_OM_KERBEROS_PRINCIPAL_KEY),
+          conf.get(OZONE_OM_KERBEROS_KEYTAB_FILE_KEY));
 
       UserGroupInformation.setConfiguration(conf);
 
       InetSocketAddress socAddr = getKsmAddress(conf);
-      SecurityUtil.login(conf, HDDS_KSM_KERBEROS_KEYTAB_FILE_KEY,
-          HDDS_KSM_KERBEROS_PRINCIPAL_KEY, socAddr.getHostName());
+      SecurityUtil.login(conf, OZONE_OM_KERBEROS_KEYTAB_FILE_KEY,
+          OZONE_OM_KERBEROS_PRINCIPAL_KEY, socAddr.getHostName());
     } else {
       throw new AuthenticationException(SecurityUtil.getAuthenticationMethod
           (conf) + " authentication method not supported. KSM user login "

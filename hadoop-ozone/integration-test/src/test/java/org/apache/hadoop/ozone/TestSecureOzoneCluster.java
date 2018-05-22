@@ -29,9 +29,7 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
-import org.apache.hadoop.hdds.HddsConfigKeys;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.hdds.scm.ScmConfigKeys;
 import org.apache.hadoop.hdds.scm.ScmInfo;
@@ -120,12 +118,12 @@ public final class TestSecureOzoneCluster {
   private void createCredentialsInKDC(Configuration conf, MiniKdc miniKdc)
       throws Exception {
     createPrincipal(scmKeytab,
-        conf.get(ScmConfigKeys.OZONE_SCM_KERBEROS_PRINCIPAL_KEY));
+        conf.get(ScmConfigKeys.HDDS_SCM_KERBEROS_PRINCIPAL_KEY));
     createPrincipal(spnegoKeytab,
-        conf.get(ScmConfigKeys.SCM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL_KEY),
-        conf.get(KSMConfigKeys.KSM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL));
+        conf.get(ScmConfigKeys.HDDS_SCM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL_KEY),
+        conf.get(KSMConfigKeys.OZONE_OM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL));
     createPrincipal(ksmKeyTab,
-        conf.get(HddsConfigKeys.HDDS_KSM_KERBEROS_PRINCIPAL_KEY));
+        conf.get(OzoneConfigKeys.OZONE_OM_KERBEROS_PRINCIPAL_KEY));
   }
 
   private void createPrincipal(File keytab, String... principal)
@@ -155,25 +153,25 @@ public final class TestSecureOzoneCluster {
         "kerberos");
     conf.set(OZONE_ADMINISTRATORS, curUser);
 
-    conf.set(ScmConfigKeys.OZONE_SCM_KERBEROS_PRINCIPAL_KEY,
+    conf.set(ScmConfigKeys.HDDS_SCM_KERBEROS_PRINCIPAL_KEY,
         "scm/" + host + "@" + realm);
-    conf.set(ScmConfigKeys.SCM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL_KEY,
+    conf.set(ScmConfigKeys.HDDS_SCM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL_KEY,
         "HTTP_SCM/" + host + "@" + realm);
 
-    conf.set(HddsConfigKeys.HDDS_KSM_KERBEROS_PRINCIPAL_KEY,
+    conf.set(OzoneConfigKeys.OZONE_OM_KERBEROS_PRINCIPAL_KEY,
         "ksm/" + host + "@" + realm);
-    conf.set(KSMConfigKeys.KSM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL,
+    conf.set(KSMConfigKeys.OZONE_OM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL,
         "HTTP_KSM/" + host + "@" + realm);
 
     scmKeytab = new File(workDir, "scm.keytab");
     spnegoKeytab = new File(workDir, "http.keytab");
     ksmKeyTab = new File(workDir, "ksm.keytab");
 
-    conf.set(ScmConfigKeys.OZONE_SCM_KERBEROS_KEYTAB_FILE_KEY,
+    conf.set(ScmConfigKeys.HDDS_SCM_KERBEROS_KEYTAB_FILE_KEY,
         scmKeytab.getAbsolutePath());
-    conf.set(ScmConfigKeys.SCM_WEB_AUTHENTICATION_KERBEROS_KEYTAB_FILE_KEY,
+    conf.set(ScmConfigKeys.HDDS_SCM_WEB_AUTHENTICATION_KERBEROS_KEYTAB_FILE_KEY,
         spnegoKeytab.getAbsolutePath());
-    conf.set(HddsConfigKeys.HDDS_KSM_KERBEROS_KEYTAB_FILE_KEY,
+    conf.set(OzoneConfigKeys.OZONE_OM_KERBEROS_KEYTAB_FILE_KEY,
         ksmKeyTab.getAbsolutePath());
 
   }
@@ -206,7 +204,7 @@ public final class TestSecureOzoneCluster {
   @Test
   public void testSecureScmStartupFailure() throws Exception {
     initSCM();
-    conf.set(ScmConfigKeys.OZONE_SCM_KERBEROS_KEYTAB_FILE_KEY, "");
+    conf.set(ScmConfigKeys.HDDS_SCM_KERBEROS_KEYTAB_FILE_KEY, "");
     conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
         "kerberos");
 
@@ -216,9 +214,9 @@ public final class TestSecureOzoneCluster {
           StorageContainerManager.createSCM(null, conf);
         });
 
-    conf.set(ScmConfigKeys.OZONE_SCM_KERBEROS_PRINCIPAL_KEY,
+    conf.set(ScmConfigKeys.HDDS_SCM_KERBEROS_PRINCIPAL_KEY,
         "scm/_HOST@EXAMPLE.com");
-    conf.set(ScmConfigKeys.OZONE_SCM_KERBEROS_KEYTAB_FILE_KEY,
+    conf.set(ScmConfigKeys.HDDS_SCM_KERBEROS_KEYTAB_FILE_KEY,
         "/etc/security/keytabs/scm.keytab");
 
     testCommonKerberosFailures(
@@ -261,7 +259,7 @@ public final class TestSecureOzoneCluster {
     ksmStore.setScmId("testScmId");
     // writes the version file properties
     ksmStore.initialize();
-    conf.set(HddsConfigKeys.HDDS_KSM_KERBEROS_PRINCIPAL_KEY,
+    conf.set(OzoneConfigKeys.OZONE_OM_KERBEROS_PRINCIPAL_KEY,
         "non-existent-user@EXAMPLE.com");
     testCommonKerberosFailures(() -> KeySpaceManager.createKSM(null, conf));
   }

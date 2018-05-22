@@ -18,7 +18,6 @@
 package org.apache.hadoop.ozone.ksm.protocolPB;
 
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.hdds.HddsConfigKeys;
 import org.apache.hadoop.ipc.ProtocolInfo;
 import org.apache.hadoop.ozone.OzoneConfigKeys;
 import org.apache.hadoop.ozone.protocol.proto
@@ -32,7 +31,7 @@ import org.apache.hadoop.security.KerberosInfo;
     "org.apache.hadoop.ozone.protocol.KeySpaceManagerProtocol",
     protocolVersion = 1)
 @KerberosInfo(
-    serverPrincipal = HddsConfigKeys.HDDS_KSM_KERBEROS_PRINCIPAL_KEY)
+    serverPrincipal = OzoneConfigKeys.OZONE_OM_KERBEROS_PRINCIPAL_KEY)
 @InterfaceAudience.Private
 public interface KeySpaceManagerProtocolPB
     extends KeySpaceManagerService.BlockingInterface {

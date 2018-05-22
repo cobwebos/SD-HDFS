@@ -64,11 +64,11 @@ public class KeySpaceManagerHttpServer extends BaseHttpServer {
   }
 
   @Override protected String getKeytabFile() {
-    return KSMConfigKeys.KSM_WEB_AUTHENTICATION_KERBEROS_KEYTAB_FILE;
+    return KSMConfigKeys.OZONE_OM_WEB_AUTHENTICATION_KERBEROS_KEYTAB_FILE;
   }
 
   @Override protected String getSpnegoPrincipal() {
-    return KSMConfigKeys.KSM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL;
+    return KSMConfigKeys.OZONE_OM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL;
   }
 
   @Override protected String getEnabledKey() {

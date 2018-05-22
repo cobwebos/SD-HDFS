@@ -240,9 +240,6 @@ public final class OzoneConfigKeys {
       DFS_RATIS_SERVER_REQUEST_TIMEOUT_DURATION_DEFAULT =
       ScmConfigKeys.DFS_RATIS_SERVER_REQUEST_TIMEOUT_DURATION_DEFAULT;
 
-  public static final String OZONE_SCM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL =
-      "ozone.web.authentication.kerberos.principal";
-
   public static final String HDDS_DATANODE_PLUGINS_KEY =
       "hdds.datanode.plugins";
 
@@ -260,6 +257,11 @@ public final class OzoneConfigKeys {
   public static final String OZONE_SECURITY_ENABLED_KEY = "ozone.security.enabled";
   public static final String OZONE_SYSTEM_TAGS_KEY = "ozone.system.tags";
   public static final boolean OZONE_SECURITY_ENABLED_DEFAULT = false;
+
+  public static final String OZONE_OM_KERBEROS_KEYTAB_FILE_KEY = "ozone.om."
+      + "kerberos.keytab.file";
+  public static final String OZONE_OM_KERBEROS_PRINCIPAL_KEY = "ozone.om"
+      + ".kerberos.principal";
 
   /**
    * There is no need to instantiate this class.
