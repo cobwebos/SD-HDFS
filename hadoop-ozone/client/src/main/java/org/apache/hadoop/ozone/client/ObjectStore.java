@@ -63,8 +63,6 @@ public class ObjectStore {
    * @throws IOException
    */
   public void createVolume(String volumeName) throws IOException {
-    Preconditions.checkNotNull(volumeName);
-    HddsClientUtils.verifyResourceName(volumeName);
     proxy.createVolume(volumeName);
   }
 
@@ -76,9 +74,6 @@ public class ObjectStore {
    */
   public void createVolume(String volumeName, VolumeArgs volumeArgs)
       throws IOException {
-    Preconditions.checkNotNull(volumeName);
-    Preconditions.checkNotNull(volumeArgs);
-    HddsClientUtils.verifyResourceName(volumeName);
     proxy.createVolume(volumeName, volumeArgs);
   }
 
@@ -89,8 +84,6 @@ public class ObjectStore {
    * @throws IOException
    */
   public OzoneVolume getVolume(String volumeName) throws IOException {
-    Preconditions.checkNotNull(volumeName);
-    HddsClientUtils.verifyResourceName(volumeName);
     OzoneVolume volume = proxy.getVolumeDetails(volumeName);
     return volume;
   }
@@ -106,25 +99,42 @@ public class ObjectStore {
    */
   public Iterator<OzoneVolume> listVolumes(String volumePrefix)
       throws IOException {
-    return new VolumeIterator(volumePrefix);
+    return listVolumes(volumePrefix, null);
   }
 
   /**
-   * Returns Iterator to iterate over the List of volumes owned by a specific
-   * user. The result can be restricted using volume prefix, will return all
-   * volumes if volume prefix is null. If user is null, returns the volume of
-   * current user.
+   * Returns Iterator to iterate over all the volumes after prevVolume in object
+   * store. If prevVolume is null it iterates from the first volume.
+   * The result can be restricted using volume prefix, will return all
+   * volumes if volume prefix is null.
+   *
+   * @param volumePrefix Volume prefix to match
+   * @param prevVolume Volumes will be listed after this volume name
+   * @return {@code Iterator<OzoneVolume>}
+   */
+  public Iterator<OzoneVolume> listVolumes(String volumePrefix,
+      String prevVolume) throws IOException {
+    return new VolumeIterator(null, volumePrefix, prevVolume);
+  }
+
+  /**
+   * Returns Iterator to iterate over the list of volumes after prevVolume owned
+   * by a specific user. The result can be restricted using volume prefix, will
+   * return all volumes if volume prefix is null. If user is not null, returns
+   * the volume of current user.
    *
    * @param user User Name
    * @param volumePrefix Volume prefix to match
+   * @param prevVolume Volumes will be listed after this volume name
    * @return {@code Iterator<OzoneVolume>}
    */
-  public Iterator<OzoneVolume> listVolumes(String user, String volumePrefix)
+  public Iterator<OzoneVolume> listVolumesByUser(String user,
+      String volumePrefix, String prevVolume)
       throws IOException {
     if(Strings.isNullOrEmpty(user)) {
       user = UserGroupInformation.getCurrentUser().getShortUserName();
     }
-    return new VolumeIterator(user, volumePrefix);
+    return new VolumeIterator(user, volumePrefix, prevVolume);
   }
 
   /**
@@ -133,8 +143,6 @@ public class ObjectStore {
    * @throws IOException
    */
   public void deleteVolume(String volumeName) throws IOException {
-    Preconditions.checkNotNull(volumeName);
-    HddsClientUtils.verifyResourceName(volumeName);
     proxy.deleteVolume(volumeName);
   }
 
@@ -150,25 +158,17 @@ public class ObjectStore {
     private OzoneVolume currentValue;
 
     /**
-     * Creates an Iterator to iterate over all volumes in the cluster,
-     * which matches the volume prefix.
-     * @param volPrefix prefix to match
-     */
-    VolumeIterator(String volPrefix) {
-      this(null, volPrefix);
-    }
-
-    /**
-     * Creates an Iterator to iterate over all volumes of the user,
-     * which matches volume prefix.
+     * Creates an Iterator to iterate over all volumes after prevVolume of the user.
+     * If prevVolume is null it iterates from the first volume. The returned volumes
+     * match volume prefix.
      * @param user user name
      * @param volPrefix volume prefix to match
      */
-    VolumeIterator(String user, String volPrefix) {
+    VolumeIterator(String user, String volPrefix, String prevVolume) {
       this.user = user;
       this.volPrefix = volPrefix;
       this.currentValue = null;
-      this.currentIterator = getNextListOfVolumes(null).iterator();
+      this.currentIterator = getNextListOfVolumes(prevVolume).iterator();
     }
 
     @Override

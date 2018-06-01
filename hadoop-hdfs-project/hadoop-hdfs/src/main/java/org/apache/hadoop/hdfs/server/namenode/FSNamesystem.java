@@ -1955,6 +1955,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
 
     if (!isInSafeMode() && res.updateAccessTime()) {
       String src = srcArg;
+      checkOperation(OperationCategory.WRITE);
       writeLock();
       final long now = now();
       try {
@@ -2037,6 +2038,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
     FileStatus stat = null;
     boolean success = false;
     final FSPermissionChecker pc = getPermissionChecker();
+    checkOperation(OperationCategory.WRITE);
     writeLock();
     try {
       checkOperation(OperationCategory.WRITE);
@@ -2140,6 +2142,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
       throw new UnsupportedOperationException("Symlinks not supported");
     }
     FileStatus auditStat = null;
+    checkOperation(OperationCategory.WRITE);
     writeLock();
     try {
       checkOperation(OperationCategory.WRITE);
@@ -5309,6 +5312,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
       String clientName, ExtendedBlock oldBlock, ExtendedBlock newBlock,
       DatanodeID[] newNodes, String[] newStorageIDs, boolean logRetryCache)
       throws IOException {
+    checkOperation(OperationCategory.WRITE);
     LOG.info("updatePipeline(" + oldBlock.getLocalBlock()
              + ", newGS=" + newBlock.getGenerationStamp()
              + ", newLength=" + newBlock.getNumBytes()
@@ -6608,6 +6612,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
     String rootPath = null;
     BlocksMapUpdateInfo blocksToBeDeleted = null;
     final FSPermissionChecker pc = getPermissionChecker();
+    checkOperation(OperationCategory.WRITE);
     writeLock();
     try {
       checkOperation(OperationCategory.WRITE);
@@ -6648,6 +6653,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
     checkOperation(OperationCategory.READ);
     readLock();
     try {
+      checkOperation(OperationCategory.READ);
       if (!isRollingUpgrade()) {
         return null;
       }
@@ -6900,6 +6906,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
     if (!flags.contains(CacheFlag.FORCE)) {
       cacheManager.waitForRescanIfNeeded();
     }
+    checkOperation(OperationCategory.WRITE);
     writeLock();
     try {
       checkOperation(OperationCategory.WRITE);
@@ -6931,6 +6938,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
     if (!flags.contains(CacheFlag.FORCE)) {
       cacheManager.waitForRescanIfNeeded();
     }
+    checkOperation(OperationCategory.WRITE);
     writeLock();
     try {
       checkOperation(OperationCategory.WRITE);
@@ -6956,6 +6964,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
     final String operationName = "removeCacheDirective";
     boolean success = false;
     String idStr = "{id: " + Long.toString(id) + "}";
+    checkOperation(OperationCategory.WRITE);
     writeLock();
     try {
       checkOperation(OperationCategory.WRITE);
@@ -7000,6 +7009,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
   void addCachePool(CachePoolInfo req, boolean logRetryCache)
       throws IOException {
     final String operationName = "addCachePool";
+    checkOperation(OperationCategory.WRITE);
     writeLock();
     boolean success = false;
     String poolInfoStr = null;
@@ -7024,6 +7034,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
   void modifyCachePool(CachePoolInfo req, boolean logRetryCache)
       throws IOException {
     final String operationName = "modifyCachePool";
+    checkOperation(OperationCategory.WRITE);
     writeLock();
     boolean success = false;
     String poolNameStr = "{poolName: " +
@@ -7050,6 +7061,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
   void removeCachePool(String cachePoolName, boolean logRetryCache)
       throws IOException {
     final String operationName = "removeCachePool";
+    checkOperation(OperationCategory.WRITE);
     writeLock();
     boolean success = false;
     String poolNameStr = "{poolName: " + cachePoolName + "}";

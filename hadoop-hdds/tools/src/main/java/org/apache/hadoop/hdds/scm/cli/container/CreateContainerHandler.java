@@ -19,7 +19,6 @@ package org.apache.hadoop.hdds.scm.cli.container;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.hadoop.hdds.scm.cli.OzoneCommandHandler;
 import org.apache.hadoop.hdds.scm.client.ScmClient;
@@ -35,7 +34,6 @@ import static org.apache.hadoop.hdds.scm.cli.SCMCLI.HELP_OP;
 public class CreateContainerHandler extends OzoneCommandHandler {
 
   public static final String CONTAINER_CREATE = "create";
-  public static final String OPT_CONTAINER_NAME = "c";
   public static final String CONTAINER_OWNER = "OZONE";
   // TODO Support an optional -p <pipelineID> option to create
   // container on given datanodes.
@@ -46,36 +44,24 @@ public class CreateContainerHandler extends OzoneCommandHandler {
 
   @Override
   public void execute(CommandLine cmd) throws IOException {
+    if (cmd.hasOption(HELP_OP)) {
+      displayHelp();
+    }
+
     if (!cmd.hasOption(CONTAINER_CREATE)) {
       throw new IOException("Expecting container create");
     }
-    if (!cmd.hasOption(OPT_CONTAINER_NAME)) {
-      displayHelp();
-      if (!cmd.hasOption(HELP_OP)) {
-        throw new IOException("Expecting container name");
-      } else {
-        return;
-      }
-    }
-    String containerName = cmd.getOptionValue(OPT_CONTAINER_NAME);
 
-    logOut("Creating container : %s.", containerName);
-    getScmClient().createContainer(containerName, CONTAINER_OWNER);
+    logOut("Creating container...");
+    getScmClient().createContainer(CONTAINER_OWNER);
     logOut("Container created.");
   }
 
   @Override
   public void displayHelp() {
     Options options = new Options();
-    addOptions(options);
     HelpFormatter helpFormatter = new HelpFormatter();
-    helpFormatter.printHelp(CMD_WIDTH, "hdfs scm -container -create <option>",
-        "where <option> is", options, "");
-  }
-
-  public static void addOptions(Options options) {
-    Option containerNameOpt = new Option(OPT_CONTAINER_NAME,
-        true, "Specify container name");
-    options.addOption(containerNameOpt);
+    helpFormatter.printHelp(CMD_WIDTH, "hdfs scm -container -create",
+        null, options, null);
   }
 }

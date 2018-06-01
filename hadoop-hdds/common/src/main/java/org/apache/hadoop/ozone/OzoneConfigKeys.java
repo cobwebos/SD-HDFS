@@ -23,6 +23,7 @@ import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.hdds.client.ReplicationFactor;
 import org.apache.hadoop.hdds.client.ReplicationType;
 import org.apache.hadoop.hdds.scm.ScmConfigKeys;
+import org.apache.ratis.util.TimeDuration;
 
 /**
  * This class contains constants for configuration keys used in Ozone.
@@ -226,6 +227,16 @@ public final class OzoneConfigKeys {
       = ScmConfigKeys.OZONE_SCM_CHUNK_MAX_SIZE;
   public static final String DFS_CONTAINER_RATIS_DATANODE_STORAGE_DIR =
       "dfs.container.ratis.datanode.storage.dir";
+  public static final String DFS_RATIS_CLIENT_REQUEST_TIMEOUT_DURATION_KEY =
+      ScmConfigKeys.DFS_RATIS_CLIENT_REQUEST_TIMEOUT_DURATION_KEY;
+  public static final TimeDuration
+      DFS_RATIS_CLIENT_REQUEST_TIMEOUT_DURATION_DEFAULT =
+      ScmConfigKeys.DFS_RATIS_CLIENT_REQUEST_TIMEOUT_DURATION_DEFAULT;
+  public static final String DFS_RATIS_SERVER_REQUEST_TIMEOUT_DURATION_KEY =
+      ScmConfigKeys.DFS_RATIS_SERVER_REQUEST_TIMEOUT_DURATION_KEY;
+  public static final TimeDuration
+      DFS_RATIS_SERVER_REQUEST_TIMEOUT_DURATION_DEFAULT =
+      ScmConfigKeys.DFS_RATIS_SERVER_REQUEST_TIMEOUT_DURATION_DEFAULT;
 
   public static final String OZONE_SCM_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL =
       "ozone.web.authentication.kerberos.principal";
@@ -233,6 +244,16 @@ public final class OzoneConfigKeys {
   public static final String HDDS_DATANODE_PLUGINS_KEY =
       "hdds.datanode.plugins";
 
+  public static final String
+      HDDS_DATANODE_STORAGE_UTILIZATION_WARNING_THRESHOLD =
+      "hdds.datanode.storage.utilization.warning.threshold";
+  public static final double
+      HDDS_DATANODE_STORAGE_UTILIZATION_WARNING_THRESHOLD_DEFAULT = 0.95;
+  public static final String
+      HDDS_DATANODE_STORAGE_UTILIZATION_CRITICAL_THRESHOLD =
+      "hdds.datanode.storage.utilization.critical.threshold";
+  public static final double
+      HDDS_DATANODE_STORAGE_UTILIZATION_CRITICAL_THRESHOLD_DEFAULT = 0.75;
   /**
    * There is no need to instantiate this class.
    */

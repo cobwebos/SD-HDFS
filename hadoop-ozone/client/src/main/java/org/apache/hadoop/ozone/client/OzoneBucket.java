@@ -104,6 +104,7 @@ public class OzoneBucket {
                      String volumeName, String bucketName,
                      List<OzoneAcl> acls, StorageType storageType,
                      Boolean versioning, long creationTime) {
+    Preconditions.checkNotNull(proxy, "Client proxy is not set.");
     this.proxy = proxy;
     this.volumeName = volumeName;
     this.name = bucketName;
@@ -180,8 +181,6 @@ public class OzoneBucket {
    * @throws IOException
    */
   public void addAcls(List<OzoneAcl> addAcls) throws IOException {
-    Preconditions.checkNotNull(proxy, "Client proxy is not set.");
-    Preconditions.checkNotNull(addAcls);
     proxy.addBucketAcls(volumeName, name, addAcls);
     addAcls.stream().filter(acl -> !acls.contains(acl)).forEach(
         acls::add);
@@ -193,8 +192,6 @@ public class OzoneBucket {
    * @throws IOException
    */
   public void removeAcls(List<OzoneAcl> removeAcls) throws IOException {
-    Preconditions.checkNotNull(proxy, "Client proxy is not set.");
-    Preconditions.checkNotNull(removeAcls);
     proxy.removeBucketAcls(volumeName, name, removeAcls);
     acls.removeAll(removeAcls);
   }
@@ -205,8 +202,6 @@ public class OzoneBucket {
    * @throws IOException
    */
   public void setStorageType(StorageType newStorageType) throws IOException {
-    Preconditions.checkNotNull(proxy, "Client proxy is not set.");
-    Preconditions.checkNotNull(newStorageType);
     proxy.setBucketStorageType(volumeName, name, newStorageType);
     storageType = newStorageType;
   }
@@ -217,8 +212,6 @@ public class OzoneBucket {
    * @throws IOException
    */
   public void setVersioning(Boolean newVersioning) throws IOException {
-    Preconditions.checkNotNull(proxy, "Client proxy is not set.");
-    Preconditions.checkNotNull(newVersioning);
     proxy.setBucketVersioning(volumeName, name, newVersioning);
     versioning = newVersioning;
   }
@@ -233,8 +226,6 @@ public class OzoneBucket {
    */
   public OzoneOutputStream createKey(String key, long size)
       throws IOException {
-    Preconditions.checkNotNull(proxy, "Client proxy is not set.");
-    Preconditions.checkNotNull(key);
     return createKey(key, size, defaultReplicationType, defaultReplication);
   }
 
@@ -251,10 +242,6 @@ public class OzoneBucket {
                                      ReplicationType type,
                                      ReplicationFactor factor)
       throws IOException {
-    Preconditions.checkNotNull(proxy, "Client proxy is not set.");
-    Preconditions.checkNotNull(key);
-    Preconditions.checkNotNull(type);
-    Preconditions.checkNotNull(factor);
     return proxy.createKey(volumeName, name, key, size, type, factor);
   }
 
@@ -265,8 +252,6 @@ public class OzoneBucket {
    * @throws IOException
    */
   public OzoneInputStream readKey(String key) throws IOException {
-    Preconditions.checkNotNull(proxy, "Client proxy is not set.");
-    Preconditions.checkNotNull(key);
     return proxy.getKey(volumeName, name, key);
   }
 
@@ -277,8 +262,6 @@ public class OzoneBucket {
    * @throws IOException
    */
   public OzoneKey getKey(String key) throws IOException {
-    Preconditions.checkNotNull(proxy, "Client proxy is not set.");
-    Preconditions.checkNotNull(key);
     return proxy.getKeyDetails(volumeName, name, key);
   }
 
@@ -291,7 +274,21 @@ public class OzoneBucket {
    * @return {@code Iterator<OzoneKey>}
    */
   public Iterator<OzoneKey> listKeys(String keyPrefix) {
-    return new KeyIterator(keyPrefix);
+    return listKeys(keyPrefix, null);
+  }
+
+  /**
+   * Returns Iterator to iterate over all keys after prevKey in the bucket.
+   * If prevKey is null it iterates from the first key in the bucket.
+   * The result can be restricted using key prefix, will return all
+   * keys if key prefix is null.
+   *
+   * @param keyPrefix Bucket prefix to match
+   * @param prevKey Keys will be listed after this key name
+   * @return {@code Iterator<OzoneKey>}
+   */
+  public Iterator<OzoneKey> listKeys(String keyPrefix, String prevKey) {
+    return new KeyIterator(keyPrefix, prevKey);
   }
 
   /**
@@ -300,9 +297,12 @@ public class OzoneBucket {
    * @throws IOException
    */
   public void deleteKey(String key) throws IOException {
-    Preconditions.checkNotNull(proxy, "Client proxy is not set.");
-    Preconditions.checkNotNull(key);
     proxy.deleteKey(volumeName, name, key);
+  }
+
+  public void renameKey(String fromKeyName, String toKeyName)
+      throws IOException {
+    proxy.renameKey(volumeName, name, fromKeyName, toKeyName);
   }
 
   /**
@@ -317,14 +317,15 @@ public class OzoneBucket {
 
 
     /**
-     * Creates an Iterator to iterate over all keys in the bucket,
-     * which matches volume prefix.
+     * Creates an Iterator to iterate over all keys after prevKey in the bucket.
+     * If prevKey is null it iterates from the first key in the bucket.
+     * The returned keys match key prefix.
      * @param keyPrefix
      */
-    KeyIterator(String keyPrefix) {
+    KeyIterator(String keyPrefix, String prevKey) {
       this.keyPrefix = keyPrefix;
       this.currentValue = null;
-      this.currentIterator = getNextListOfKeys(null).iterator();
+      this.currentIterator = getNextListOfKeys(prevKey).iterator();
     }
 
     @Override

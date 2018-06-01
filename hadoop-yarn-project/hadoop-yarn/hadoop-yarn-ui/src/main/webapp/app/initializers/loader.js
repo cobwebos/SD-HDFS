@@ -20,21 +20,67 @@
 
 import Ember from 'ember';
 
-function getTimeLineURL(rmhost) {
+function getYarnHttpProtocolScheme(rmhost, application) {
+  var httpUrl = window.location.protocol + '//' +
+    (ENV.hosts.localBaseAddress? ENV.hosts.localBaseAddress + '/' : '') + rmhost;
+
+  httpUrl += '/conf?name=yarn.http.policy';
+  Ember.Logger.log("yarn.http.policy URL is: " + httpUrl);
+
+  var protocolScheme = "";
+  $.ajax({
+    type: 'GET',
+    dataType: 'json',
+    async: false,
+    context: this,
+    url: httpUrl,
+    success: function(data) {
+      protocolScheme = data.property.value;
+      Ember.Logger.log("Protocol scheme from RM: " + protocolScheme);
+
+      application.advanceReadiness();
+    },
+    error: function() {
+      application.advanceReadiness();
+    }
+  });
+  return protocolScheme;
+}
+
+function getTimeLineURL(rmhost, isHttpsSchemeEnabled) {
   var url = window.location.protocol + '//' +
     (ENV.hosts.localBaseAddress? ENV.hosts.localBaseAddress + '/' : '') + rmhost;
 
-  url += '/conf?name=yarn.timeline-service.reader.webapp.address';
+  if(isHttpsSchemeEnabled) {
+    url += '/conf?name=yarn.timeline-service.reader.webapp.https.address';
+  } else {
+    url += '/conf?name=yarn.timeline-service.reader.webapp.address';
+  }
+
   Ember.Logger.log("Get Timeline V2 Address URL: " + url);
   return url;
 }
 
-function getTimeLineV1URL(rmhost) {
+function getTimeLineV1URL(rmhost, isHttpsSchemeEnabled) {
   var url = window.location.protocol + '//' +
     (ENV.hosts.localBaseAddress? ENV.hosts.localBaseAddress + '/' : '') + rmhost;
 
-  url += '/conf?name=yarn.timeline-service.webapp.address';
+  if(isHttpsSchemeEnabled) {
+    url += '/conf?name=yarn.timeline-service.webapp.https.address';
+  } else {
+    url += '/conf?name=yarn.timeline-service.webapp.address';
+  }
+
   Ember.Logger.log("Get Timeline V1 Address URL: " + url);
+  return url;
+}
+
+function getSecurityURL(rmhost) {
+  var url = window.location.protocol + '//' +
+    (ENV.hosts.localBaseAddress? ENV.hosts.localBaseAddress + '/' : '') + rmhost;
+
+  url += '/conf?name=hadoop.security.authentication';
+  Ember.Logger.log("Server security mode url is: " + url);
   return url;
 }
 
@@ -51,6 +97,9 @@ function updateConfigs(application) {
 
   Ember.Logger.log("RM Address: " + rmhost);
 
+  var protocolSchemeFromRM = getYarnHttpProtocolScheme(rmhost, application);
+  Ember.Logger.log("Is protocol scheme https? " + (protocolSchemeFromRM == "HTTPS_ONLY"));
+  var isHttpsSchemeEnabled = (protocolSchemeFromRM == "HTTPS_ONLY");
   if(!ENV.hosts.timelineWebAddress) {
     var timelinehost = "";
     $.ajax({
@@ -58,7 +107,7 @@ function updateConfigs(application) {
       dataType: 'json',
       async: true,
       context: this,
-      url: getTimeLineURL(rmhost),
+      url: getTimeLineURL(rmhost, isHttpsSchemeEnabled),
       success: function(data) {
         timelinehost = data.property.value;
         timelinehost = timelinehost.replace(/(^\w+:|^)\/\//, '');
@@ -90,9 +139,9 @@ function updateConfigs(application) {
     $.ajax({
       type: 'GET',
       dataType: 'json',
-      async: true,
+      async: false,
       context: this,
-      url: getTimeLineV1URL(rmhost),
+      url: getTimeLineV1URL(rmhost, isHttpsSchemeEnabled),
       success: function(data) {
         timelinehost = data.property.value;
         timelinehost = timelinehost.replace(/(^\w+:|^)\/\//, '');
@@ -116,6 +165,29 @@ function updateConfigs(application) {
     });
   } else {
     Ember.Logger.log("Timeline V1 Address: " + ENV.hosts.timelineV1WebAddress);
+    application.advanceReadiness();
+  }
+
+  if(!ENV.hosts.isSecurityEnabled) {
+    var isSecurityEnabled = "";
+    $.ajax({
+      type: 'GET',
+      dataType: 'json',
+      async: false,
+      context: this,
+      url: getSecurityURL(rmhost),
+      success: function(data) {
+        isSecurityEnabled = data.property.value;
+        ENV.hosts.isSecurityEnabled = isSecurityEnabled;
+        Ember.Logger.log("Security mode is : " + isSecurityEnabled);
+        application.advanceReadiness();
+      },
+      error: function() {
+        application.advanceReadiness();
+      }
+    });
+  } else {
+    Ember.Logger.log("Security mode is: " + ENV.hosts.isSecurityEnabled);
     application.advanceReadiness();
   }
 }

@@ -18,7 +18,7 @@
 package org.apache.hadoop.hdds.scm;
 
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.hdds.protocol.proto.ContainerProtos;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos;
 import org.apache.hadoop.metrics2.MetricsSystem;
 import org.apache.hadoop.metrics2.annotation.Metric;
 import org.apache.hadoop.metrics2.annotation.Metrics;
@@ -49,13 +49,13 @@ public class XceiverClientMetrics {
     this.containerOpsLatency = new MutableRate[numEnumEntries];
     for (int i = 0; i < numEnumEntries; i++) {
       pendingOpsArray[i] = registry.newCounter(
-          "numPending" + ContainerProtos.Type.valueOf(i + 1),
-          "number of pending" + ContainerProtos.Type.valueOf(i + 1) + " ops",
+          "numPending" + ContainerProtos.Type.forNumber(i + 1),
+          "number of pending" + ContainerProtos.Type.forNumber(i + 1) + " ops",
           (long) 0);
 
       containerOpsLatency[i] = registry.newRate(
-          ContainerProtos.Type.valueOf(i + 1) + "Latency",
-          "latency of " + ContainerProtos.Type.valueOf(i + 1)
+          ContainerProtos.Type.forNumber(i + 1) + "Latency",
+          "latency of " + ContainerProtos.Type.forNumber(i + 1)
           + " ops");
     }
   }

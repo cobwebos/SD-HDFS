@@ -1323,6 +1323,12 @@ public class NameNodeRpcServer implements NamenodeProtocols {
   }
 
   @Override // ClientProtocol
+  public boolean upgradeStatus() throws IOException {
+    checkNNStartup();
+    return namesystem.isUpgradeFinalized();
+  }
+
+  @Override // ClientProtocol
   public RollingUpgradeInfo rollingUpgrade(RollingUpgradeAction action) throws IOException {
     checkNNStartup();
     LOG.info("rollingUpgrade " + action);

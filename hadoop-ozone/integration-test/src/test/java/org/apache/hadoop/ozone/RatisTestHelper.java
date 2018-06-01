@@ -20,8 +20,10 @@ package org.apache.hadoop.ozone;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
+import org.apache.hadoop.ozone.client.protocol.ClientProtocol;
+import org.apache.hadoop.ozone.client.rpc.RpcClient;
+import org.apache.hadoop.hdds.protocol.DatanodeDetails;
 import org.apache.hadoop.ozone.container.ContainerTestHelper;
-import org.apache.hadoop.ozone.web.client.OzoneRestClient;
 import org.apache.hadoop.ozone.client.rest.OzoneException;
 import org.apache.ratis.rpc.RpcType;
 import org.apache.ratis.rpc.SupportedRpcType;
@@ -65,9 +67,9 @@ public interface RatisTestHelper {
       return cluster;
     }
 
-    public OzoneRestClient newOzoneRestClient()
-        throws OzoneException, URISyntaxException {
-      return RatisTestHelper.newOzoneRestClient(getDatanodeOzoneRestPort());
+    public ClientProtocol newOzoneClient()
+        throws OzoneException, URISyntaxException, IOException {
+      return new RpcClient(conf);
     }
 
     @Override
@@ -77,7 +79,7 @@ public interface RatisTestHelper {
 
     public int getDatanodeOzoneRestPort() {
       return cluster.getHddsDatanodes().get(0).getDatanodeDetails()
-          .getOzoneRestPort();
+          .getPort(DatanodeDetails.Port.Name.REST).getValue();
     }
   }
 
@@ -101,10 +103,5 @@ public interface RatisTestHelper {
     final MiniOzoneCluster cluster = MiniOzoneCluster.newBuilder(conf)
         .setNumDatanodes(numDatanodes).build();
     return cluster;
-  }
-
-  static OzoneRestClient newOzoneRestClient(int port)
-      throws OzoneException, URISyntaxException {
-    return new OzoneRestClient("http://localhost:" + port);
   }
 }

@@ -121,6 +121,10 @@ public class YarnConfiguration extends Configuration {
         new DeprecationDelta(RM_ZK_RETRY_INTERVAL_MS,
             CommonConfigurationKeys.ZK_RETRY_INTERVAL_MS),
     });
+    Configuration.addDeprecations(new DeprecationDelta[] {
+        new DeprecationDelta("yarn.resourcemanager.display.per-user-apps",
+            FILTER_ENTITY_LIST_BY_USER)
+    });
   }
 
   //Configurations
@@ -1377,6 +1381,16 @@ public class YarnConfiguration extends Configuration {
       NM_PREFIX + "log-aggregation.roll-monitoring-interval-seconds";
   public static final long
       DEFAULT_NM_LOG_AGGREGATION_ROLL_MONITORING_INTERVAL_SECONDS = -1;
+
+  /**
+   * Define how many aggregated log files per application per NM we can have
+   * in remote file system.
+   */
+  public static final String NM_LOG_AGGREGATION_NUM_LOG_FILES_SIZE_PER_APP
+      = NM_PREFIX + "log-aggregation.num-log-files-per-app";
+  public static final int
+      DEFAULT_NM_LOG_AGGREGATION_NUM_LOG_FILES_SIZE_PER_APP = 30;
+
   /**
    * Number of threads used in log cleanup. Only applicable if Log aggregation
    * is disabled
@@ -1429,6 +1443,25 @@ public class YarnConfiguration extends Configuration {
   public static final String NM_VMEM_PMEM_RATIO =
     NM_PREFIX + "vmem-pmem-ratio";
   public static final float DEFAULT_NM_VMEM_PMEM_RATIO = 2.1f;
+
+  /** Specifies whether to do memory check on overall usage. */
+  public static final String NM_ELASTIC_MEMORY_CONTROL_ENABLED = NM_PREFIX
+      + "elastic-memory-control.enabled";
+  public static final boolean DEFAULT_NM_ELASTIC_MEMORY_CONTROL_ENABLED = false;
+
+  /** Specifies the OOM handler code. */
+  public static final String NM_ELASTIC_MEMORY_CONTROL_OOM_HANDLER = NM_PREFIX
+      + "elastic-memory-control.oom-handler";
+
+  /** The path to the OOM listener.*/
+  public static final String NM_ELASTIC_MEMORY_CONTROL_OOM_LISTENER_PATH =
+      NM_PREFIX + "elastic-memory-control.oom-listener.path";
+
+  /** Maximum time in seconds to resolve an OOM situation. */
+  public static final String NM_ELASTIC_MEMORY_CONTROL_OOM_TIMEOUT_SEC =
+      NM_PREFIX + "elastic-memory-control.timeout-sec";
+  public static final Integer
+      DEFAULT_NM_ELASTIC_MEMORY_CONTROL_OOM_TIMEOUT_SEC = 5;
 
   /** Number of Virtual CPU Cores which can be allocated for containers.*/
   public static final String NM_VCORES = NM_PREFIX + "resource.cpu-vcores";
@@ -1969,6 +2002,16 @@ public class YarnConfiguration extends Configuration {
    */
   public static final int DEFAULT_NM_DOCKER_STOP_GRACE_PERIOD = 10;
 
+  /** The default list of read-only mounts to be bind-mounted into all
+   *  Docker containers that use DockerContainerRuntime. */
+  public static final String NM_DOCKER_DEFAULT_RO_MOUNTS =
+      DOCKER_CONTAINER_RUNTIME_PREFIX + "default-ro-mounts";
+
+  /** The default list of read-write mounts to be bind-mounted into all
+   *  Docker containers that use DockerContainerRuntime. */
+  public static final String NM_DOCKER_DEFAULT_RW_MOUNTS =
+      DOCKER_CONTAINER_RUNTIME_PREFIX + "default-rw-mounts";
+
   /** The mode in which the Java Container Sandbox should run detailed by
    *  the JavaSandboxLinuxContainerRuntime. */
   public static final String YARN_CONTAINER_SANDBOX =
@@ -1996,13 +2039,6 @@ public class YarnConfiguration extends Configuration {
   /** The path to the Linux container executor.*/
   public static final String NM_LINUX_CONTAINER_EXECUTOR_PATH =
     NM_PREFIX + "linux-container-executor.path";
-  
-  /** 
-   * The UNIX group that the linux-container-executor should run as.
-   * This is intended to be set as part of container-executor.cfg. 
-   */
-  public static final String NM_LINUX_CONTAINER_GROUP =
-    NM_PREFIX + "linux-container-executor.group";
 
   /**
    * True if linux-container-executor should limit itself to one user
@@ -3547,11 +3583,16 @@ public class YarnConfiguration extends Configuration {
   public static final String NM_SCRIPT_BASED_NODE_LABELS_PROVIDER_SCRIPT_OPTS =
       NM_SCRIPT_BASED_NODE_LABELS_PROVIDER_PREFIX + "opts";
 
-  /*
+  /**
    * Support to view apps for given user in secure cluster.
+   * @deprecated This field is deprecated for {@link #FILTER_ENTITY_LIST_BY_USER}
    */
+  @Deprecated
   public static final String DISPLAY_APPS_FOR_LOGGED_IN_USER =
       RM_PREFIX + "display.per-user-apps";
+
+  public static final String FILTER_ENTITY_LIST_BY_USER =
+      "yarn.webapp.filter-entity-list-by-user";
   public static final boolean DEFAULT_DISPLAY_APPS_FOR_LOGGED_IN_USER =
       false;
 

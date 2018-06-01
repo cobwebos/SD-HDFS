@@ -72,6 +72,15 @@
     </description>
   </property>
   <property>
+    <name>dfs.container.grpc.enabled</name>
+    <value>false</value>
+    <tag>OZONE, MANAGEMENT, PIPELINE, RATIS</tag>
+    <description>Ozone supports different kinds of replication pipelines
+      protocols. grpc is one of the replication pipeline protocol supported by
+      ozone.
+    </description>
+  </property>
+  <property>
     <name>dfs.container.ratis.ipc</name>
     <value>9858</value>
     <tag>OZONE, CONTAINER, PIPELINE, RATIS, MANAGEMENT</tag>
@@ -118,6 +127,18 @@
     <description>The size of the buffer which is preallocated for raft segment
       used by Apache Ratis on datanodes.(128 MB by default)
     </description>
+  </property>
+  <property>
+    <name>dfs.ratis.client.request.timeout.duration</name>
+    <value>3s</value>
+    <tag>OZONE, RATIS, MANAGEMENT</tag>
+    <description>The timeout duration for ratis client request.</description>
+  </property>
+  <property>
+    <name>dfs.ratis.server.request.timeout.duration</name>
+    <value>3s</value>
+    <tag>OZONE, RATIS, MANAGEMENT</tag>
+    <description>The timeout duration for ratis server request.</description>
   </property>
   <property>
     <name>ozone.container.report.interval</name>
@@ -994,12 +1015,12 @@
   </property>
 
   <property>
-    <name>hadoop.custom.tags</name>
+    <name>hadoop.tags.custom</name>
     <value>OZONE,MANAGEMENT,SECURITY,PERFORMANCE,DEBUG,CLIENT,SERVER,KSM,SCM,CRITICAL,RATIS,CONTAINER,REQUIRED,REST,STORAGE,PIPELINE,STANDALONE</value>
   </property>
 
   <property>
-    <name>ozone.system.tags</name>
+    <name>ozone.tags.system</name>
     <value>OZONE,MANAGEMENT,SECURITY,PERFORMANCE,DEBUG,CLIENT,SERVER,KSM,SCM,CRITICAL,RATIS,CONTAINER,REQUIRED,REST,STORAGE,PIPELINE,STANDALONE</value>
   </property>
 
@@ -1043,6 +1064,25 @@
     <description>
       Comma-separated list of HDDS datanode plug-ins to be activated when
       HDDS service starts as part of datanode.
+    </description>
+  </property>
+  <property>
+    <name>hdds.datanode.storage.utilization.warning.threshold</name>
+    <value>0.75</value>
+    <tag>OZONE, SCM, MANAGEMENT</tag>
+    <description>
+      If a datanode overall storage utilization exceeds more than this
+      value, a warning will be logged while processing the nodeReport in SCM.
+    </description>
+  </property>
+
+  <property>
+    <name>hdds.datanode.storage.utilization.critical.threshold</name>
+    <value>0.95</value>
+    <tag>OZONE, SCM, MANAGEMENT</tag>
+    <description>
+      If a datanode overall storage utilization exceeds more than this
+      value, the datanode will be marked out of space.
     </description>
   </property>
 

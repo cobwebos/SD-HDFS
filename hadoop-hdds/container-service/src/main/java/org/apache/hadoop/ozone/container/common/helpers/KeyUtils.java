@@ -21,17 +21,17 @@ import com.google.common.base.Preconditions;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdds.scm.container.common.helpers
     .StorageContainerException;
-import org.apache.hadoop.hdds.protocol.proto.ContainerProtos;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos;
 import org.apache.hadoop.ozone.container.common.utils.ContainerCache;
 import org.apache.hadoop.utils.MetadataStore;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
 
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .NO_SUCH_KEY;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .UNABLE_TO_READ_METADATA_DB;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.NO_SUCH_KEY;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.UNABLE_TO_READ_METADATA_DB;
 
 /**
  * Utils functions to help key functions.
@@ -63,11 +63,11 @@ public final class KeyUtils {
     ContainerCache cache = ContainerCache.getInstance(conf);
     Preconditions.checkNotNull(cache);
     try {
-      return cache.getDB(container.getContainerName(), container.getDBPath());
+      return cache.getDB(container.getContainerID(), container.getDBPath());
     } catch (IOException ex) {
       String message =
           String.format("Unable to open DB. DB Name: %s, Path: %s. ex: %s",
-          container.getContainerName(), container.getDBPath(), ex.getMessage());
+          container.getContainerID(), container.getDBPath(), ex.getMessage());
       throw new StorageContainerException(message, UNABLE_TO_READ_METADATA_DB);
     }
   }
@@ -83,7 +83,7 @@ public final class KeyUtils {
     Preconditions.checkNotNull(container);
     ContainerCache cache = ContainerCache.getInstance(conf);
     Preconditions.checkNotNull(cache);
-    cache.removeDB(container.getContainerName());
+    cache.removeDB(container.getContainerID());
   }
   /**
    * Shutdown all DB Handles.

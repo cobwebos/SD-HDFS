@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Random;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.RandomUtils;
 import org.apache.hadoop.hdds.scm.TestUtils;
 import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.hdfs.server.datanode.StorageLocation;
@@ -93,12 +94,10 @@ public class TestContainerDeletionChoosingPolicy {
 
     int numContainers = 10;
     for (int i = 0; i < numContainers; i++) {
-      String containerName = OzoneUtils.getRequestID();
-      ContainerData data = new ContainerData(containerName, new Long(i), conf);
-      containerManager.createContainer(createSingleNodePipeline(containerName),
-          data);
+      ContainerData data = new ContainerData(new Long(i), conf);
+      containerManager.createContainer(data);
       Assert.assertTrue(
-          containerManager.getContainerMap().containsKey(containerName));
+          containerManager.getContainerMap().containsKey(data.getContainerID()));
     }
 
     List<ContainerData> result0 = containerManager
@@ -113,8 +112,8 @@ public class TestContainerDeletionChoosingPolicy {
 
     boolean hasShuffled = false;
     for (int i = 0; i < numContainers; i++) {
-      if (!result1.get(i).getContainerName()
-          .equals(result2.get(i).getContainerName())) {
+      if (result1.get(i).getContainerID()
+           != result2.get(i).getContainerID()) {
         hasShuffled = true;
         break;
       }
@@ -140,15 +139,14 @@ public class TestContainerDeletionChoosingPolicy {
 
     int numContainers = 10;
     Random random = new Random();
-    Map<String, Integer> name2Count = new HashMap<>();
+    Map<Long, Integer> name2Count = new HashMap<>();
     // create [numContainers + 1] containers
     for (int i = 0; i <= numContainers; i++) {
-      String containerName = OzoneUtils.getRequestID();
-      ContainerData data = new ContainerData(containerName, new Long(i), conf);
-      containerManager.createContainer(createSingleNodePipeline(containerName),
-          data);
+      long containerId = RandomUtils.nextLong();
+      ContainerData data = new ContainerData(containerId, conf);
+      containerManager.createContainer(data);
       Assert.assertTrue(
-          containerManager.getContainerMap().containsKey(containerName));
+          containerManager.getContainerMap().containsKey(containerId));
 
       // don't create deletion blocks in the last container.
       if (i == numContainers) {
@@ -158,7 +156,7 @@ public class TestContainerDeletionChoosingPolicy {
       // create random number of deletion blocks and write to container db
       int deletionBlocks = random.nextInt(numContainers) + 1;
       // record <ContainerName, DeletionCount> value
-      name2Count.put(containerName, deletionBlocks);
+      name2Count.put(containerId, deletionBlocks);
       for (int j = 0; j <= deletionBlocks; j++) {
         MetadataStore metadata = KeyUtils.getDB(data, conf);
         String blk = "blk" + i + "-" + j;
@@ -186,7 +184,7 @@ public class TestContainerDeletionChoosingPolicy {
     // verify the order of return list
     int lastCount = Integer.MAX_VALUE;
     for (ContainerData data : result1) {
-      int currentCount = name2Count.remove(data.getContainerName());
+      int currentCount = name2Count.remove(data.getContainerID());
       // previous count should not smaller than next one
       Assert.assertTrue(currentCount > 0 && currentCount <= lastCount);
       lastCount = currentCount;

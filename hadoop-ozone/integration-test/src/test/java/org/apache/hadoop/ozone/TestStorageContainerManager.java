@@ -20,25 +20,28 @@ package org.apache.hadoop.ozone;
 import static org.junit.Assert.fail;
 import java.io.IOException;
 
-import org.apache.commons.lang.RandomStringUtils;
+import org.apache.commons.lang3.RandomUtils;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
+import org.apache.hadoop.hdds.scm.container.common.helpers.ContainerInfo;
+import org.apache.hadoop.hdds.scm.server.SCMClientProtocolServer;
 import org.apache.hadoop.hdds.scm.server.SCMStorage;
 import org.apache.hadoop.hdds.scm.node.NodeManager;
+import org.apache.hadoop.ozone.container.ContainerTestHelper;
 import org.apache.hadoop.ozone.protocol.commands.DeleteBlocksCommand;
 import org.apache.hadoop.ozone.protocol.commands.SCMCommand;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos.NodeType;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos.NodeState;
-import org.apache.hadoop.hdds.protocol.proto.StorageContainerDatanodeProtocolProtos.DeletedBlocksTransaction;
-import org.apache.hadoop.hdds.protocol.proto.StorageContainerDatanodeProtocolProtos.ReportState;
-import org.apache.hadoop.hdds.protocol.proto.StorageContainerDatanodeProtocolProtos.SCMCmdType;
+import org.apache.hadoop.hdds.protocol.proto
+    .StorageContainerDatanodeProtocolProtos.DeletedBlocksTransaction;
+import org.apache.hadoop.hdds.protocol.proto
+    .StorageContainerDatanodeProtocolProtos.SCMCommandProto;
 import org.apache.hadoop.hdds.scm.server.StorageContainerManager;
 import org.apache.hadoop.hdds.scm.server.StorageContainerManager.StartupOption;
 import org.apache.hadoop.hdds.scm.block.DeletedBlockLog;
 import org.apache.hadoop.hdds.scm.block.SCMBlockDeletingService;
 import org.apache.hadoop.hdds.scm.exceptions.SCMException;
 import org.apache.hadoop.hdds.scm.XceiverClientManager;
-import org.apache.hadoop.hdds.scm.container.common.helpers.Pipeline;
 import org.apache.hadoop.hdds.scm.ScmInfo;
 import org.junit.Rule;
 import org.junit.Assert;
@@ -106,18 +109,19 @@ public class TestStorageContainerManager {
     MiniOzoneCluster cluster = MiniOzoneCluster.newBuilder(ozoneConf).build();
     cluster.waitForClusterToBeReady();
     try {
-      String fakeUser = fakeRemoteUsername;
-      StorageContainerManager mockScm = Mockito.spy(
-          cluster.getStorageContainerManager());
-      Mockito.when(mockScm.getPpcRemoteUsername())
-          .thenReturn(fakeUser);
+
+      SCMClientProtocolServer mockClientServer = Mockito.spy(
+          cluster.getStorageContainerManager().getClientProtocolServer());
+      Mockito.when(mockClientServer.getRpcRemoteUsername())
+          .thenReturn(fakeRemoteUsername);
 
       try {
-        mockScm.getClientProtocolServer().deleteContainer("container1");
+        mockClientServer.deleteContainer(
+            ContainerTestHelper.getTestContainerID());
         fail("Operation should fail, expecting an IOException here.");
       } catch (Exception e) {
         if (expectPermissionDenied) {
-          verifyPermissionDeniedException(e, fakeUser);
+          verifyPermissionDeniedException(e, fakeRemoteUsername);
         } else {
           // If passes permission check, it should fail with
           // container not exist exception.
@@ -127,39 +131,38 @@ public class TestStorageContainerManager {
       }
 
       try {
-        Pipeline pipeLine2 = mockScm.getClientProtocolServer()
+        ContainerInfo container2 = mockClientServer
             .allocateContainer(xceiverClientManager.getType(),
-            HddsProtos.ReplicationFactor.ONE, "container2", "OZONE");
+            HddsProtos.ReplicationFactor.ONE,  "OZONE");
         if (expectPermissionDenied) {
           fail("Operation should fail, expecting an IOException here.");
         } else {
-          Assert.assertEquals("container2", pipeLine2.getContainerName());
+          Assert.assertEquals(1, container2.getPipeline().getMachines().size());
         }
       } catch (Exception e) {
-        verifyPermissionDeniedException(e, fakeUser);
+        verifyPermissionDeniedException(e, fakeRemoteUsername);
       }
 
       try {
-        Pipeline pipeLine3 = mockScm.getClientProtocolServer()
+        ContainerInfo container3 = mockClientServer
             .allocateContainer(xceiverClientManager.getType(),
-            HddsProtos.ReplicationFactor.ONE, "container3", "OZONE");
-
+            HddsProtos.ReplicationFactor.ONE, "OZONE");
         if (expectPermissionDenied) {
           fail("Operation should fail, expecting an IOException here.");
         } else {
-          Assert.assertEquals("container3", pipeLine3.getContainerName());
-          Assert.assertEquals(1, pipeLine3.getMachines().size());
+          Assert.assertEquals(1, container3.getPipeline().getMachines().size());
         }
       } catch (Exception e) {
-        verifyPermissionDeniedException(e, fakeUser);
+        verifyPermissionDeniedException(e, fakeRemoteUsername);
       }
 
       try {
-        mockScm.getClientProtocolServer().getContainer("container4");
+        mockClientServer.getContainer(
+            ContainerTestHelper.getTestContainerID());
         fail("Operation should fail, expecting an IOException here.");
       } catch (Exception e) {
         if (expectPermissionDenied) {
-          verifyPermissionDeniedException(e, fakeUser);
+          verifyPermissionDeniedException(e, fakeRemoteUsername);
         } else {
           // If passes permission check, it should fail with
           // key not exist exception.
@@ -210,9 +213,9 @@ public class TestStorageContainerManager {
           new TestStorageContainerManagerHelper(cluster, conf);
       Map<String, KsmKeyInfo> keyLocations = helper.createKeys(numKeys, 4096);
 
-      Map<String, List<String>> containerBlocks = createDeleteTXLog(delLog,
+      Map<Long, List<Long>> containerBlocks = createDeleteTXLog(delLog,
           keyLocations, helper);
-      Set<String> containerNames = containerBlocks.keySet();
+      Set<Long> containerIDs = containerBlocks.keySet();
 
       // Verify a few TX gets created in the TX log.
       Assert.assertTrue(delLog.getNumOfValidTransactions() > 0);
@@ -229,16 +232,16 @@ public class TestStorageContainerManager {
           return false;
         }
       }, 1000, 10000);
-      Assert.assertTrue(helper.getAllBlocks(containerNames).isEmpty());
+      Assert.assertTrue(helper.getAllBlocks(containerIDs).isEmpty());
 
       // Continue the work, add some TXs that with known container names,
       // but unknown block IDs.
-      for (String containerName : containerBlocks.keySet()) {
+      for (Long containerID : containerBlocks.keySet()) {
         // Add 2 TXs per container.
-        delLog.addTransaction(containerName,
-            Collections.singletonList(RandomStringUtils.randomAlphabetic(5)));
-        delLog.addTransaction(containerName,
-            Collections.singletonList(RandomStringUtils.randomAlphabetic(5)));
+        delLog.addTransaction(containerID,
+            Collections.singletonList(RandomUtils.nextLong()));
+        delLog.addTransaction(containerID,
+            Collections.singletonList(RandomUtils.nextLong()));
       }
 
       // Verify a few TX gets created in the TX log.
@@ -300,15 +303,12 @@ public class TestStorageContainerManager {
     GenericTestUtils.waitFor(() -> {
       NodeManager nodeManager = cluster.getStorageContainerManager()
           .getScmNodeManager();
-      ReportState reportState = ReportState.newBuilder()
-          .setState(ReportState.states.noContainerReports).setCount(0).build();
       List<SCMCommand> commands = nodeManager.sendHeartbeat(
-          nodeManager.getNodes(NodeState.HEALTHY).get(0).getProtoBufMessage(),
-          null, reportState);
+          nodeManager.getNodes(NodeState.HEALTHY).get(0), null);
 
       if (commands != null) {
         for (SCMCommand cmd : commands) {
-          if (cmd.getType() == SCMCmdType.deleteBlocksCommand) {
+          if (cmd.getType() == SCMCommandProto.Type.deleteBlocksCommand) {
             List<DeletedBlocksTransaction> deletedTXs =
                 ((DeleteBlocksCommand) cmd).blocksTobeDeleted();
             return deletedTXs != null && deletedTXs.size() == limitSize;
@@ -319,16 +319,16 @@ public class TestStorageContainerManager {
     }, 500, 10000);
   }
 
-  private Map<String, List<String>> createDeleteTXLog(DeletedBlockLog delLog,
+  private Map<Long, List<Long>> createDeleteTXLog(DeletedBlockLog delLog,
       Map<String, KsmKeyInfo> keyLocations,
       TestStorageContainerManagerHelper helper) throws IOException {
     // These keys will be written into a bunch of containers,
     // gets a set of container names, verify container containerBlocks
     // on datanodes.
-    Set<String> containerNames = new HashSet<>();
+    Set<Long> containerNames = new HashSet<>();
     for (Map.Entry<String, KsmKeyInfo> entry : keyLocations.entrySet()) {
       entry.getValue().getLatestVersionLocations().getLocationList()
-          .forEach(loc -> containerNames.add(loc.getContainerName()));
+          .forEach(loc -> containerNames.add(loc.getContainerID()));
     }
 
     // Total number of containerBlocks of these containers should be equal to
@@ -342,22 +342,22 @@ public class TestStorageContainerManager {
         helper.getAllBlocks(containerNames).size());
 
     // Create a deletion TX for each key.
-    Map<String, List<String>> containerBlocks = Maps.newHashMap();
+    Map<Long, List<Long>> containerBlocks = Maps.newHashMap();
     for (KsmKeyInfo info : keyLocations.values()) {
       List<KsmKeyLocationInfo> list =
           info.getLatestVersionLocations().getLocationList();
       list.forEach(location -> {
-        if (containerBlocks.containsKey(location.getContainerName())) {
-          containerBlocks.get(location.getContainerName())
-              .add(location.getBlockID());
+        if (containerBlocks.containsKey(location.getContainerID())) {
+          containerBlocks.get(location.getContainerID())
+              .add(location.getBlockID().getLocalID());
         } else {
-          List<String> blks = Lists.newArrayList();
-          blks.add(location.getBlockID());
-          containerBlocks.put(location.getContainerName(), blks);
+          List<Long> blks = Lists.newArrayList();
+          blks.add(location.getBlockID().getLocalID());
+          containerBlocks.put(location.getContainerID(), blks);
         }
       });
     }
-    for (Map.Entry<String, List<String>> tx : containerBlocks.entrySet()) {
+    for (Map.Entry<Long, List<Long>> tx : containerBlocks.entrySet()) {
       delLog.addTransaction(tx.getKey(), tx.getValue());
     }
 

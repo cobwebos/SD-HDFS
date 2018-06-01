@@ -45,7 +45,6 @@ import org.apache.hadoop.hdds.scm.node.SCMNodeManager;
 import org.apache.hadoop.hdds.server.ServiceRuntimeInfoImpl;
 import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.ipc.ProtobufRpcEngine;
 import org.apache.hadoop.ipc.RPC;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.metrics2.util.MBeans;
@@ -168,8 +167,7 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
         cacheSize);
 
     scmBlockManager =
-        new BlockManagerImpl(conf, getScmNodeManager(), scmContainerManager,
-            cacheSize);
+        new BlockManagerImpl(conf, getScmNodeManager(), scmContainerManager);
 
     scmAdminUsernames = conf.getTrimmedStringCollection(OzoneConfigKeys
         .OZONE_ADMINISTRATORS);
@@ -459,9 +457,9 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
   }
 
   @VisibleForTesting
-  public ContainerInfo getContainerInfo(String containerName) throws
+  public ContainerInfo getContainerInfo(long containerID) throws
       IOException {
-    return scmContainerManager.getContainer(containerName);
+    return scmContainerManager.getContainer(containerID);
   }
 
   /**
@@ -621,14 +619,7 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
     return scmBlockManager;
   }
 
-  @VisibleForTesting
-  public String getPpcRemoteUsername() {
-    UserGroupInformation user = ProtobufRpcEngine.Server.getRemoteUser();
-    return user == null ? null : user.getUserName();
-  }
-
-  public void checkAdminAccess() throws IOException {
-    String remoteUser = getPpcRemoteUsername();
+  public void checkAdminAccess(String remoteUser) throws IOException {
     if (remoteUser != null) {
       if (!scmAdminUsernames.contains(remoteUser)) {
         throw new IOException(

@@ -20,18 +20,18 @@ package org.apache.hadoop.hdds.scm;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
+import org.apache.ratis.shaded.io.netty.bootstrap.Bootstrap;
+import org.apache.ratis.shaded.io.netty.channel.Channel;
+import org.apache.ratis.shaded.io.netty.channel.EventLoopGroup;
+import org.apache.ratis.shaded.io.netty.channel.nio.NioEventLoopGroup;
+import org.apache.ratis.shaded.io.netty.channel.socket.nio.NioSocketChannel;
+import org.apache.ratis.shaded.io.netty.handler.logging.LogLevel;
+import org.apache.ratis.shaded.io.netty.handler.logging.LoggingHandler;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdds.scm.client.HddsClientUtils;
 import org.apache.hadoop.hdds.scm.container.common.helpers.Pipeline;
 import org.apache.hadoop.hdds.protocol.DatanodeDetails;
-import org.apache.hadoop.hdds.protocol.proto.ContainerProtos;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos;
 import org.apache.hadoop.ozone.OzoneConfigKeys;
 import org.slf4j.Logger;
@@ -54,6 +54,7 @@ public class XceiverClient extends XceiverClientSpi {
   private Bootstrap b;
   private EventLoopGroup group;
   private final Semaphore semaphore;
+  private boolean closed = false;
 
   /**
    * Constructs a client that can communicate with the Container framework on
@@ -74,6 +75,10 @@ public class XceiverClient extends XceiverClientSpi {
 
   @Override
   public void connect() throws Exception {
+    if (closed) {
+      throw new IOException("This channel is not connected.");
+    }
+
     if (channel != null && channel.isActive()) {
       throw new IOException("This client is already connected to a host.");
     }
@@ -88,13 +93,25 @@ public class XceiverClient extends XceiverClientSpi {
 
     // read port from the data node, on failure use default configured
     // port.
-    int port = leader.getContainerPort();
+    int port = leader.getPort(DatanodeDetails.Port.Name.STANDALONE).getValue();
     if (port == 0) {
       port = config.getInt(OzoneConfigKeys.DFS_CONTAINER_IPC_PORT,
           OzoneConfigKeys.DFS_CONTAINER_IPC_PORT_DEFAULT);
     }
     LOG.debug("Connecting to server Port : " + port);
     channel = b.connect(leader.getHostName(), port).sync().channel();
+  }
+
+  public void reconnect() throws IOException {
+    try {
+      connect();
+      if (channel == null || !channel.isActive()) {
+        throw new IOException("This channel is not connected.");
+      }
+    } catch (Exception e) {
+      LOG.error("Error while connecting: ", e);
+      throw new IOException(e);
+    }
   }
 
   /**
@@ -109,6 +126,7 @@ public class XceiverClient extends XceiverClientSpi {
 
   @Override
   public void close() {
+    closed = true;
     if (group != null) {
       group.shutdownGracefully().awaitUninterruptibly();
     }
@@ -124,7 +142,7 @@ public class XceiverClient extends XceiverClientSpi {
       ContainerProtos.ContainerCommandRequestProto request) throws IOException {
     try {
       if ((channel == null) || (!channel.isActive())) {
-        throw new IOException("This channel is not connected.");
+        reconnect();
       }
       XceiverClientHandler handler =
           channel.pipeline().get(XceiverClientHandler.class);
@@ -160,7 +178,7 @@ public class XceiverClient extends XceiverClientSpi {
       sendCommandAsync(ContainerProtos.ContainerCommandRequestProto request)
       throws IOException, ExecutionException, InterruptedException {
     if ((channel == null) || (!channel.isActive())) {
-      throw new IOException("This channel is not connected.");
+      reconnect();
     }
     XceiverClientHandler handler =
         channel.pipeline().get(XceiverClientHandler.class);

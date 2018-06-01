@@ -173,18 +173,6 @@ public class KeyManagerImpl implements KeyManager {
     String volumeName = args.getVolumeName();
     String bucketName = args.getBucketName();
     String keyName = args.getKeyName();
-    ReplicationFactor factor = args.getFactor();
-    ReplicationType type = args.getType();
-
-    // If user does not specify a replication strategy or
-    // replication factor, KSM will use defaults.
-    if(factor == null) {
-      factor = useRatis ? ReplicationFactor.THREE: ReplicationFactor.ONE;
-    }
-
-    if(type == null) {
-      type = useRatis ? ReplicationType.RATIS : ReplicationType.STAND_ALONE;
-    }
 
     try {
       validateBucket(volumeName, bucketName);
@@ -198,13 +186,13 @@ public class KeyManagerImpl implements KeyManager {
         throw new KSMException("Open Key not found",
             KSMException.ResultCodes.FAILED_KEY_NOT_FOUND);
       }
-      AllocatedBlock allocatedBlock =
-          scmBlockClient.allocateBlock(scmBlockSize, type, factor, ksmId);
       KsmKeyInfo keyInfo =
           KsmKeyInfo.getFromProtobuf(KeyInfo.parseFrom(keyData));
+      AllocatedBlock allocatedBlock =
+          scmBlockClient.allocateBlock(scmBlockSize, keyInfo.getType(),
+              keyInfo.getFactor(), ksmId);
       KsmKeyLocationInfo info = new KsmKeyLocationInfo.Builder()
-          .setContainerName(allocatedBlock.getPipeline().getContainerName())
-          .setBlockID(allocatedBlock.getKey())
+          .setBlockID(allocatedBlock.getBlockID())
           .setShouldCreateContainer(allocatedBlock.getCreateContainer())
           .setLength(scmBlockSize)
           .setOffset(0)
@@ -256,8 +244,7 @@ public class KeyManagerImpl implements KeyManager {
         AllocatedBlock allocatedBlock =
             scmBlockClient.allocateBlock(allocateSize, type, factor, ksmId);
         KsmKeyLocationInfo subKeyInfo = new KsmKeyLocationInfo.Builder()
-            .setContainerName(allocatedBlock.getPipeline().getContainerName())
-            .setBlockID(allocatedBlock.getKey())
+            .setBlockID(allocatedBlock.getBlockID())
             .setShouldCreateContainer(allocatedBlock.getCreateContainer())
             .setLength(allocateSize)
             .setOffset(0)
@@ -295,6 +282,8 @@ public class KeyManagerImpl implements KeyManager {
             .setCreationTime(currentTime)
             .setModificationTime(currentTime)
             .setDataSize(size)
+            .setReplicationType(type)
+            .setReplicationFactor(factor)
             .build();
         openVersion = 0;
       }
@@ -392,6 +381,71 @@ public class KeyManagerImpl implements KeyManager {
           volumeName, bucketName, keyName, ex);
       throw new KSMException(ex.getMessage(),
           KSMException.ResultCodes.FAILED_KEY_NOT_FOUND);
+    } finally {
+      metadataManager.writeLock().unlock();
+    }
+  }
+
+  @Override
+  public void renameKey(KsmKeyArgs args, String toKeyName) throws IOException {
+    Preconditions.checkNotNull(args);
+    Preconditions.checkNotNull(toKeyName);
+    String volumeName = args.getVolumeName();
+    String bucketName = args.getBucketName();
+    String fromKeyName = args.getKeyName();
+    if (toKeyName.length() == 0 || fromKeyName.length() == 0) {
+      LOG.error("Rename key failed for volume:{} bucket:{} fromKey:{} toKey:{}.",
+          volumeName, bucketName, fromKeyName, toKeyName);
+      throw new KSMException("Key name is empty",
+          ResultCodes.FAILED_INVALID_KEY_NAME);
+    }
+
+    metadataManager.writeLock().lock();
+    try {
+      // fromKeyName should exist
+      byte[] fromKey = metadataManager.getDBKeyBytes(
+          volumeName, bucketName, fromKeyName);
+      byte[] fromKeyValue = metadataManager.get(fromKey);
+      if (fromKeyValue == null) {
+        // TODO: Add support for renaming open key
+        LOG.error(
+            "Rename key failed for volume:{} bucket:{} fromKey:{} toKey:{}. "
+                + "Key: {} not found.", volumeName, bucketName, fromKeyName,
+            toKeyName, fromKeyName);
+        throw new KSMException("Key not found",
+            KSMException.ResultCodes.FAILED_KEY_NOT_FOUND);
+      }
+
+      // toKeyName should not exist
+      byte[] toKey =
+          metadataManager.getDBKeyBytes(volumeName, bucketName, toKeyName);
+      byte[] toKeyValue = metadataManager.get(toKey);
+      if (toKeyValue != null) {
+        LOG.error(
+            "Rename key failed for volume:{} bucket:{} fromKey:{} toKey:{}. "
+                + "Key: {} already exists.", volumeName, bucketName,
+            fromKeyName, toKeyName, toKeyName);
+        throw new KSMException("Key not found",
+            KSMException.ResultCodes.FAILED_KEY_ALREADY_EXISTS);
+      }
+
+      if (fromKeyName.equals(toKeyName)) {
+        return;
+      }
+
+      KsmKeyInfo newKeyInfo =
+          KsmKeyInfo.getFromProtobuf(KeyInfo.parseFrom(fromKeyValue));
+      newKeyInfo.setKeyName(toKeyName);
+      newKeyInfo.updateModifcationTime();
+      BatchOperation batch = new BatchOperation();
+      batch.delete(fromKey);
+      batch.put(toKey, newKeyInfo.getProtobuf().toByteArray());
+      metadataManager.writeBatch(batch);
+    } catch (DBException ex) {
+      LOG.error("Rename key failed for volume:{} bucket:{} fromKey:{} toKey:{}.",
+          volumeName, bucketName, fromKeyName, toKeyName, ex);
+      throw new KSMException(ex.getMessage(),
+          ResultCodes.FAILED_KEY_RENAME);
     } finally {
       metadataManager.writeLock().unlock();
     }

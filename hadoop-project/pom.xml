@@ -97,12 +97,18 @@
     <ldap-api.version>1.0.0-M33</ldap-api.version>
 
     <!-- Apache Ratis version -->
-    <ratis.version>0.1.1-alpha-8fd74ed-SNAPSHOT</ratis.version>
+    <ratis.version>0.1.1-alpha-d7d7061-SNAPSHOT</ratis.version>
     <jcache.version>1.0-alpha-1</jcache.version>
     <ehcache.version>3.3.1</ehcache.version>
     <hikari.version>2.4.12</hikari.version>
     <mssql.version>6.2.1.jre7</mssql.version>
     <okhttp.version>2.7.5</okhttp.version>
+
+    <!-- Maven protoc compiler -->
+    <protobuf-maven-plugin.version>0.5.1</protobuf-maven-plugin.version>
+    <protobuf-compile.version>3.5.0</protobuf-compile.version>
+    <grpc.version>1.10.0</grpc.version>
+    <os-maven-plugin.version>1.5.0.Final</os-maven-plugin.version>
 
     <!-- define the Java language version used by the compiler -->
     <javac.version>1.8</javac.version>
@@ -413,7 +419,7 @@
         <version>${hadoop.version}</version>
       </dependency>
 
-     <dependency>
+      <dependency>
         <groupId>org.apache.hadoop</groupId>
         <artifactId>hadoop-yarn-applications-distributedshell</artifactId>
         <version>${hadoop.version}</version>
@@ -566,6 +572,11 @@
       <dependency>
         <groupId>org.apache.hadoop</groupId>
         <artifactId>hadoop-ozone-objectstore-service</artifactId>
+        <version>${hdds.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.hadoop</groupId>
+        <artifactId>hadoop-ozone-docs</artifactId>
         <version>${hdds.version}</version>
       </dependency>
 
@@ -876,12 +887,6 @@
       </dependency>
 
       <dependency>
-        <groupId>org.jctools</groupId>
-        <artifactId>jctools-core</artifactId>
-        <version>1.2.1</version>
-      </dependency>
-
-      <dependency>
         <groupId>org.apache.ratis</groupId>
         <artifactId>ratis-proto-shaded</artifactId>
         <version>${ratis.version}</version>
@@ -1137,6 +1142,11 @@
         <groupId>org.mockito</groupId>
         <artifactId>mockito-all</artifactId>
         <version>1.8.5</version>
+      </dependency>
+      <dependency>
+        <groupId>org.objenesis</groupId>
+        <artifactId>objenesis</artifactId>
+        <version>1.0</version>
       </dependency>
       <dependency>
         <groupId>org.mock-server</groupId>
@@ -1737,8 +1747,8 @@
           </ignores>
         </configuration>
       </plugin>
-       <plugin>
-         <groupId>org.apache.maven.plugins</groupId>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-antrun-plugin</artifactId>
         <executions>
           <execution>

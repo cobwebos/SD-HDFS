@@ -1677,6 +1677,20 @@ public class ContainerLaunch implements Callable<Integer> {
       containerLogDirs, Map<Path, List<String>> resources,
       Path nmPrivateClasspathJarDir,
       Set<String> nmVars) throws IOException {
+    // Based on discussion in YARN-7654, for ENTRY_POINT enabled
+    // docker container, we forward user defined environment variables
+    // without node manager environment variables.  This is the reason
+    // that we skip sanitizeEnv method.
+    boolean overrideDisable = Boolean.parseBoolean(
+        environment.get(
+            Environment.
+                YARN_CONTAINER_RUNTIME_DOCKER_RUN_OVERRIDE_DISABLE.
+                    name()));
+    if (overrideDisable) {
+      environment.remove("WORK_DIR");
+      return;
+    }
+
     /**
      * Non-modifiable environment variables
      */
@@ -1721,13 +1735,14 @@ public class ContainerLaunch implements Callable<Integer> {
       addToEnvMap(environment, nmVars, "JVM_PID", "$$");
     }
 
-    // variables here will be forced in, even if the container has specified them.
-    String nmAdminUserEnv = conf.get(
-        YarnConfiguration.NM_ADMIN_USER_ENV,
-        YarnConfiguration.DEFAULT_NM_ADMIN_USER_ENV);
-    Apps.setEnvFromInputString(environment, nmAdminUserEnv, File.pathSeparator);
-    nmVars.addAll(Apps.getEnvVarsFromInputString(nmAdminUserEnv,
-        File.pathSeparator));
+    // variables here will be forced in, even if the container has
+    // specified them.
+    String defEnvStr = conf.get(YarnConfiguration.DEFAULT_NM_ADMIN_USER_ENV);
+    Apps.setEnvFromInputProperty(environment,
+        YarnConfiguration.NM_ADMIN_USER_ENV, defEnvStr, conf,
+        File.pathSeparator);
+    nmVars.addAll(Apps.getEnvVarsFromInputProperty(
+        YarnConfiguration.NM_ADMIN_USER_ENV, defEnvStr, conf));
 
     // TODO: Remove Windows check and use this approach on all platforms after
     // additional testing.  See YARN-358.

@@ -593,8 +593,8 @@ public class DFSInputStream extends FSInputStream
           fetchBlockAt(target);
         } else {
           connectFailedOnce = true;
-          DFSClient.LOG.warn("Failed to connect to {} for block {}, " +
-              "add to deadNodes and continue. ", targetAddr,
+          DFSClient.LOG.warn("Failed to connect to {} for file {} for block "
+                  + "{}, add to deadNodes and continue. ", targetAddr, src,
               targetBlock.getBlock(), ex);
           // Put chosen node into dead list, continue
           addToDeadNodes(chosenNode);
@@ -790,11 +790,22 @@ public class DFSInputStream extends FSInputStream
           // Check if need to report block replicas corruption either read
           // was successful or ChecksumException occurred.
           reportCheckSumFailure(corruptedBlocks,
-              currentLocatedBlock.getLocations().length, false);
+              getCurrentBlockLocationsLength(), false);
         }
       }
     }
     return -1;
+  }
+
+  protected int getCurrentBlockLocationsLength() {
+    int len = 0;
+    if (currentLocatedBlock == null) {
+      DFSClient.LOG.info("Found null currentLocatedBlock. pos={}, "
+          + "blockEnd={}, fileLength={}", pos, blockEnd, getFileLength());
+    } else {
+      len = currentLocatedBlock.getLocations().length;
+    }
+    return len;
   }
 
   /**

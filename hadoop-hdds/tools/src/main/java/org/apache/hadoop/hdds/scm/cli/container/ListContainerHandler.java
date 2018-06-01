@@ -24,7 +24,6 @@ import org.apache.commons.cli.Options;
 import org.apache.hadoop.hdds.scm.cli.OzoneCommandHandler;
 import org.apache.hadoop.hdds.scm.client.ScmClient;
 import org.apache.hadoop.hdds.scm.container.common.helpers.ContainerInfo;
-import org.apache.hadoop.hdds.scm.container.common.helpers.Pipeline;
 import org.apache.hadoop.ozone.web.utils.JsonUtils;
 
 import java.io.IOException;
@@ -40,7 +39,6 @@ public class ListContainerHandler extends OzoneCommandHandler {
 
   public static final String CONTAINER_LIST = "list";
   public static final String OPT_START_CONTAINER = "start";
-  public static final String OPT_PREFIX_CONTAINER = "prefix";
   public static final String OPT_COUNT = "count";
 
   /**
@@ -71,8 +69,7 @@ public class ListContainerHandler extends OzoneCommandHandler {
       }
     }
 
-    String startName = cmd.getOptionValue(OPT_START_CONTAINER);
-    String prefixName = cmd.getOptionValue(OPT_PREFIX_CONTAINER);
+    String startID = cmd.getOptionValue(OPT_START_CONTAINER);
     int count = 0;
 
     if (cmd.hasOption(OPT_COUNT)) {
@@ -84,18 +81,20 @@ public class ListContainerHandler extends OzoneCommandHandler {
     }
 
     List<ContainerInfo> containerList =
-        getScmClient().listContainer(startName, prefixName, count);
+        getScmClient().listContainer(
+            Long.parseLong(startID), count);
 
     // Output data list
     for (ContainerInfo container : containerList) {
-      outputContainerPipeline(container.getPipeline());
+      outputContainerInfo(container);
     }
   }
 
-  private void outputContainerPipeline(Pipeline pipeline) throws IOException {
+  private void outputContainerInfo(ContainerInfo containerInfo)
+      throws IOException {
     // Print container report info.
     logOut("%s", JsonUtils.toJsonStringWithDefaultPrettyPrinter(
-        pipeline.toJsonString()));
+        containerInfo.toJsonString()));
   }
 
   @Override
@@ -109,13 +108,10 @@ public class ListContainerHandler extends OzoneCommandHandler {
 
   public static void addOptions(Options options) {
     Option startContainerOpt = new Option(OPT_START_CONTAINER,
-        true, "Specify start container name");
-    Option endContainerOpt = new Option(OPT_PREFIX_CONTAINER,
-        true, "Specify prefix container name");
+        true, "Specify start container id");
     Option countOpt = new Option(OPT_COUNT, true,
         "Specify count number, required");
     options.addOption(countOpt);
     options.addOption(startContainerOpt);
-    options.addOption(endContainerOpt);
   }
 }

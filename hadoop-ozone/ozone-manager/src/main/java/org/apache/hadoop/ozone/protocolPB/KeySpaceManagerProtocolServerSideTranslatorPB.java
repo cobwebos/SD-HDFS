@@ -63,6 +63,10 @@ import org.apache.hadoop.ozone.protocol.proto
 import org.apache.hadoop.ozone.protocol.proto
     .KeySpaceManagerProtocolProtos.LocateKeyResponse;
 import org.apache.hadoop.ozone.protocol.proto
+    .KeySpaceManagerProtocolProtos.RenameKeyRequest;
+import org.apache.hadoop.ozone.protocol.proto
+    .KeySpaceManagerProtocolProtos.RenameKeyResponse;
+import org.apache.hadoop.ozone.protocol.proto
     .KeySpaceManagerProtocolProtos.KeyArgs;
 import org.apache.hadoop.ozone.protocol.proto
     .KeySpaceManagerProtocolProtos.SetVolumePropertyRequest;
@@ -152,6 +156,8 @@ public class KeySpaceManagerProtocolServerSideTranslatorPB implements
         return Status.KEY_ALREADY_EXISTS;
       case FAILED_KEY_NOT_FOUND:
         return Status.KEY_NOT_FOUND;
+      case FAILED_INVALID_KEY_NAME:
+        return Status.INVALID_KEY_NAME;
       default:
         return Status.INTERNAL_ERROR;
       }
@@ -373,6 +379,26 @@ public class KeySpaceManagerProtocolServerSideTranslatorPB implements
   }
 
   @Override
+  public RenameKeyResponse renameKey(
+      RpcController controller, RenameKeyRequest request)
+      throws ServiceException {
+    RenameKeyResponse.Builder resp = RenameKeyResponse.newBuilder();
+    try {
+      KeyArgs keyArgs = request.getKeyArgs();
+      KsmKeyArgs ksmKeyArgs = new KsmKeyArgs.Builder()
+          .setVolumeName(keyArgs.getVolumeName())
+          .setBucketName(keyArgs.getBucketName())
+          .setKeyName(keyArgs.getKeyName())
+          .build();
+      impl.renameKey(ksmKeyArgs, request.getToKeyName());
+      resp.setStatus(Status.OK);
+    } catch (IOException e){
+      resp.setStatus(exceptionToResponseStatus(e));
+    }
+    return resp.build();
+  }
+
+  @Override
   public SetBucketPropertyResponse setBucketProperty(
       RpcController controller, SetBucketPropertyRequest request)
       throws ServiceException {
@@ -501,16 +527,10 @@ public class KeySpaceManagerProtocolServerSideTranslatorPB implements
         AllocateBlockResponse.newBuilder();
     try {
       KeyArgs keyArgs = request.getKeyArgs();
-      HddsProtos.ReplicationType type =
-          keyArgs.hasType()? keyArgs.getType() : null;
-      HddsProtos.ReplicationFactor factor =
-          keyArgs.hasFactor()? keyArgs.getFactor() : null;
       KsmKeyArgs ksmKeyArgs = new KsmKeyArgs.Builder()
           .setVolumeName(keyArgs.getVolumeName())
           .setBucketName(keyArgs.getBucketName())
           .setKeyName(keyArgs.getKeyName())
-          .setType(type)
-          .setFactor(factor)
           .build();
       int id = request.getClientID();
       KsmKeyLocationInfo newLocation = impl.allocateBlock(ksmKeyArgs, id);

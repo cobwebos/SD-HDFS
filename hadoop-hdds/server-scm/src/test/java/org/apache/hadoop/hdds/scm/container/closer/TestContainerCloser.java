@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.hdds.scm.container.closer;
 
-import org.apache.commons.lang.RandomStringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.hdds.scm.TestUtils;
@@ -31,7 +30,7 @@ import org.apache.hadoop.hdds.protocol.proto.HddsProtos;
 import org.apache.hadoop.hdds.protocol.proto
     .StorageContainerDatanodeProtocolProtos;
 import org.apache.hadoop.hdds.protocol.proto
-    .StorageContainerDatanodeProtocolProtos.ContainerReportsRequestProto;
+    .StorageContainerDatanodeProtocolProtos.ContainerReportsProto;
 import org.apache.hadoop.ozone.OzoneConfigKeys;
 import org.apache.hadoop.ozone.container.common.SCMTestUtils;
 import org.apache.hadoop.test.GenericTestUtils;
@@ -92,15 +91,13 @@ public class TestContainerCloser {
 
   @Test
   public void testClose() throws IOException {
-    String containerName = "container-" + RandomStringUtils.randomNumeric(5);
-
     ContainerInfo info = mapping.allocateContainer(
         HddsProtos.ReplicationType.STAND_ALONE,
-        HddsProtos.ReplicationFactor.ONE, containerName, "ozone");
+        HddsProtos.ReplicationFactor.ONE, "ozone");
 
     //Execute these state transitions so that we can close the container.
-    mapping.updateContainerState(containerName, CREATE);
-    mapping.updateContainerState(containerName, CREATED);
+    mapping.updateContainerState(info.getContainerID(), CREATE);
+    mapping.updateContainerState(info.getContainerID(), CREATED);
     long currentCount = mapping.getCloser().getCloseCount();
     long runCount = mapping.getCloser().getThreadRunCount();
 
@@ -120,7 +117,7 @@ public class TestContainerCloser {
     long newUsed = (long) (size * 0.91f);
     sendContainerReport(info, newUsed);
 
-    // with only one container the  cleaner thread should not run.
+    // with only one container the cleaner thread should not run.
     Assert.assertEquals(runCount, mapping.getCloser().getThreadRunCount());
 
     // and close count will be one.
@@ -140,14 +137,13 @@ public class TestContainerCloser {
 
     configuration.setTimeDuration(OZONE_CONTAINER_REPORT_INTERVAL, 1,
         TimeUnit.SECONDS);
-    String containerName = "container-" + RandomStringUtils.randomNumeric(5);
 
     ContainerInfo info = mapping.allocateContainer(
         HddsProtos.ReplicationType.STAND_ALONE,
-        HddsProtos.ReplicationFactor.ONE, containerName, "ozone");
+        HddsProtos.ReplicationFactor.ONE, "ozone");
 
     //Execute these state transitions so that we can close the container.
-    mapping.updateContainerState(containerName, CREATE);
+    mapping.updateContainerState(info.getContainerID(), CREATE);
 
     long currentCount = mapping.getCloser().getCloseCount();
     long runCount = mapping.getCloser().getThreadRunCount();
@@ -187,12 +183,11 @@ public class TestContainerCloser {
     long runCount = mapping.getCloser().getThreadRunCount();
 
     for (int x = 0; x < ContainerCloser.getCleanupWaterMark() + 10; x++) {
-      String containerName = "container-" + RandomStringUtils.randomNumeric(7);
       ContainerInfo info = mapping.allocateContainer(
           HddsProtos.ReplicationType.STAND_ALONE,
-          HddsProtos.ReplicationFactor.ONE, containerName, "ozone");
-      mapping.updateContainerState(containerName, CREATE);
-      mapping.updateContainerState(containerName, CREATED);
+          HddsProtos.ReplicationFactor.ONE, "ozone");
+      mapping.updateContainerState(info.getContainerID(), CREATE);
+      mapping.updateContainerState(info.getContainerID(), CREATED);
       sendContainerReport(info, 5 * GIGABYTE);
     }
 
@@ -204,13 +199,12 @@ public class TestContainerCloser {
 
   private void sendContainerReport(ContainerInfo info, long used) throws
       IOException {
-    ContainerReportsRequestProto.Builder
-        reports =  ContainerReportsRequestProto.newBuilder();
-    reports.setType(ContainerReportsRequestProto.reportType.fullReport);
+    ContainerReportsProto.Builder
+        reports =  ContainerReportsProto.newBuilder();
 
     StorageContainerDatanodeProtocolProtos.ContainerInfo.Builder ciBuilder =
         StorageContainerDatanodeProtocolProtos.ContainerInfo.newBuilder();
-    ciBuilder.setContainerName(info.getContainerName())
+    ciBuilder.setContainerID(info.getContainerID())
         .setFinalhash("e16cc9d6024365750ed8dbd194ea46d2")
         .setSize(size)
         .setUsed(used)
@@ -218,11 +212,9 @@ public class TestContainerCloser {
         .setReadCount(100000000L)
         .setWriteCount(100000000L)
         .setReadBytes(2000000000L)
-        .setWriteBytes(2000000000L)
-        .setContainerID(1L);
-    reports.setDatanodeDetails(
-        TestUtils.getDatanodeDetails().getProtoBufMessage());
+        .setWriteBytes(2000000000L);
     reports.addReports(ciBuilder);
-    mapping.processContainerReports(reports.build());
+    mapping.processContainerReports(TestUtils.getDatanodeDetails(),
+        reports.build());
   }
 }

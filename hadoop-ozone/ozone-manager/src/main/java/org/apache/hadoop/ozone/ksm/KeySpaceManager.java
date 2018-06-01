@@ -21,6 +21,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.protobuf.BlockingService;
 import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.hdds.protocol.DatanodeDetails;
 import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.ipc.Client;
 import org.apache.hadoop.ipc.ProtobufRpcEngine;
@@ -715,7 +716,7 @@ public final class KeySpaceManager extends ServiceRuntimeInfoImpl
   }
 
   @Override
-  public KsmKeyLocationInfo  allocateBlock(KsmKeyArgs args, int clientID)
+  public KsmKeyLocationInfo allocateBlock(KsmKeyArgs args, int clientID)
       throws IOException {
     try {
       metrics.incNumBlockAllocateCalls();
@@ -741,6 +742,17 @@ public final class KeySpaceManager extends ServiceRuntimeInfoImpl
     } catch (Exception ex) {
       metrics.incNumKeyLookupFails();
       throw ex;
+    }
+  }
+
+  @Override
+  public void renameKey(KsmKeyArgs args, String toKeyName) throws IOException {
+    try {
+      metrics.incNumKeyRenames();
+      keyManager.renameKey(args, toKeyName);
+    } catch (IOException e) {
+      metrics.incNumKeyRenameFails();
+      throw e;
     }
   }
 
@@ -885,7 +897,8 @@ public final class KeySpaceManager extends ServiceRuntimeInfoImpl
 
       dnServiceInfoBuilder.addServicePort(ServicePort.newBuilder()
           .setType(ServicePort.Type.HTTP)
-          .setValue(datanode.getOzoneRestPort())
+          .setValue(DatanodeDetails.getFromProtoBuf(datanode)
+              .getPort(DatanodeDetails.Port.Name.REST).getValue())
           .build());
 
       services.add(dnServiceInfoBuilder.build());

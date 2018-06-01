@@ -18,13 +18,14 @@
 
 package org.apache.hadoop.ozone.container.common.helpers;
 
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdds.scm.ScmConfigKeys;
-import org.apache.hadoop.hdds.protocol.proto.ContainerProtos;
-import org.apache.hadoop.hdds.protocol.proto.HddsProtos;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .ContainerType;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .ContainerLifeCycleState;
 import org.apache.hadoop.ozone.OzoneConsts;
-import org.apache.hadoop.util.Time;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -40,31 +41,70 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class ContainerData {
 
-  private final String containerName;
   private final Map<String, String> metadata;
   private String dbPath;  // Path to Level DB Store.
   // Path to Physical file system where container and checksum are stored.
   private String containerFilePath;
-  private String hash;
   private AtomicLong bytesUsed;
   private long maxSize;
-  private Long containerID;
-  private HddsProtos.LifeCycleState state;
+  private long containerID;
+  private ContainerLifeCycleState state;
+  private ContainerType containerType;
+  private String containerDBType;
+
+
+  /**
+   * Number of pending deletion blocks in container.
+   */
+  private int numPendingDeletionBlocks;
+  private AtomicLong readBytes;
+  private AtomicLong writeBytes;
+  private AtomicLong readCount;
+  private AtomicLong writeCount;
+
 
   /**
    * Constructs a  ContainerData Object.
    *
-   * @param containerName - Name
+   * @param containerID - ID
+   * @param conf - Configuration
    */
-  public ContainerData(String containerName, Long containerID,
+  public ContainerData(long containerID,
       Configuration conf) {
     this.metadata = new TreeMap<>();
-    this.containerName = containerName;
     this.maxSize = conf.getLong(ScmConfigKeys.SCM_CONTAINER_CLIENT_MAX_SIZE_KEY,
         ScmConfigKeys.SCM_CONTAINER_CLIENT_MAX_SIZE_DEFAULT) * OzoneConsts.GB;
     this.bytesUsed =  new AtomicLong(0L);
     this.containerID = containerID;
-    this.state = HddsProtos.LifeCycleState.OPEN;
+    this.state = ContainerLifeCycleState.OPEN;
+    this.numPendingDeletionBlocks = 0;
+    this.readCount = new AtomicLong(0L);
+    this.readBytes =  new AtomicLong(0L);
+    this.writeCount =  new AtomicLong(0L);
+    this.writeBytes =  new AtomicLong(0L);
+  }
+
+  /**
+   * Constructs a  ContainerData Object.
+   *
+   * @param containerID - ID
+   * @param conf - Configuration
+   * @param state - ContainerLifeCycleState
+   * @param
+   */
+  public ContainerData(long containerID, Configuration conf,
+                       ContainerLifeCycleState state) {
+    this.metadata = new TreeMap<>();
+    this.maxSize = conf.getLong(ScmConfigKeys.SCM_CONTAINER_CLIENT_MAX_SIZE_KEY,
+        ScmConfigKeys.SCM_CONTAINER_CLIENT_MAX_SIZE_DEFAULT) * OzoneConsts.GB;
+    this.bytesUsed =  new AtomicLong(0L);
+    this.containerID = containerID;
+    this.state = state;
+    this.numPendingDeletionBlocks = 0;
+    this.readCount = new AtomicLong(0L);
+    this.readBytes =  new AtomicLong(0L);
+    this.writeCount =  new AtomicLong(0L);
+    this.writeBytes =  new AtomicLong(0L);
   }
 
   /**
@@ -76,7 +116,7 @@ public class ContainerData {
   public static ContainerData getFromProtBuf(
       ContainerProtos.ContainerData protoData, Configuration conf)
       throws IOException {
-    ContainerData data = new ContainerData(protoData.getName(),
+    ContainerData data = new ContainerData(
         protoData.getContainerID(), conf);
     for (int x = 0; x < protoData.getMetadataCount(); x++) {
       data.addMetadata(protoData.getMetadata(x).getKey(),
@@ -95,10 +135,6 @@ public class ContainerData {
       data.setState(protoData.getState());
     }
 
-    if(protoData.hasHash()) {
-      data.setHash(protoData.getHash());
-    }
-
     if (protoData.hasBytesUsed()) {
       data.setBytesUsed(protoData.getBytesUsed());
     }
@@ -106,7 +142,24 @@ public class ContainerData {
     if (protoData.hasSize()) {
       data.setMaxSize(protoData.getSize());
     }
+
+    if(protoData.hasContainerType()) {
+      data.setContainerType(protoData.getContainerType());
+    }
+
+    if(protoData.hasContainerDBType()) {
+      data.setContainerDBType(protoData.getContainerDBType());
+    }
+
     return data;
+  }
+
+  public String getContainerDBType() {
+    return containerDBType;
+  }
+
+  public void setContainerDBType(String containerDBType) {
+    this.containerDBType = containerDBType;
   }
 
   /**
@@ -117,15 +170,10 @@ public class ContainerData {
   public ContainerProtos.ContainerData getProtoBufMessage() {
     ContainerProtos.ContainerData.Builder builder = ContainerProtos
         .ContainerData.newBuilder();
-    builder.setName(this.getContainerName());
     builder.setContainerID(this.getContainerID());
 
     if (this.getDBPath() != null) {
       builder.setDbPath(this.getDBPath());
-    }
-
-    if (this.getHash() != null) {
-      builder.setHash(this.getHash());
     }
 
     if (this.getContainerPath() != null) {
@@ -135,8 +183,8 @@ public class ContainerData {
     builder.setState(this.getState());
 
     for (Map.Entry<String, String> entry : metadata.entrySet()) {
-      HddsProtos.KeyValue.Builder keyValBuilder =
-          HddsProtos.KeyValue.newBuilder();
+      ContainerProtos.KeyValue.Builder keyValBuilder =
+          ContainerProtos.KeyValue.newBuilder();
       builder.addMetadata(keyValBuilder.setKey(entry.getKey())
           .setValue(entry.getValue()).build());
     }
@@ -153,18 +201,24 @@ public class ContainerData {
       builder.setSize(this.getMaxSize());
     }
 
+    if(this.getContainerType() != null) {
+      builder.setContainerType(containerType);
+    }
+
+    if(this.getContainerDBType() != null) {
+      builder.setContainerDBType(containerDBType);
+    }
+
     return builder.build();
   }
 
-  /**
-   * Returns the name of the container.
-   *
-   * @return - name
-   */
-  public String getContainerName() {
-    return containerName;
+  public void setContainerType(ContainerType containerType) {
+    this.containerType = containerType;
   }
 
+  public ContainerType getContainerType() {
+    return this.containerType;
+  }
   /**
    * Adds metadata.
    */
@@ -231,9 +285,11 @@ public class ContainerData {
    *
    * @return String Name.
    */
-  public String getName() {
-    return getContainerName();
-  }
+    // TODO: check the ContainerCache class to see if we are using the ContainerID instead.
+   /*
+   public String getName() {
+    return getContainerID();
+  }*/
 
   /**
    * Get container file path.
@@ -255,15 +311,15 @@ public class ContainerData {
    * Get container ID.
    * @return - container ID.
    */
-  public synchronized Long getContainerID() {
+  public synchronized long getContainerID() {
     return containerID;
   }
 
-  public synchronized  void setState(HddsProtos.LifeCycleState state) {
+  public synchronized void setState(ContainerLifeCycleState state) {
     this.state = state;
   }
 
-  public synchronized HddsProtos.LifeCycleState getState() {
+  public synchronized ContainerLifeCycleState getState() {
     return this.state;
   }
 
@@ -272,7 +328,23 @@ public class ContainerData {
    * @return - boolean
    */
   public synchronized  boolean isOpen() {
-    return HddsProtos.LifeCycleState.OPEN == state;
+    return ContainerLifeCycleState.OPEN == state;
+  }
+
+  /**
+   * checks if the container is invalid.
+   * @return - boolean
+   */
+  public boolean isValid() {
+    return !(ContainerLifeCycleState.INVALID == state);
+  }
+
+  /**
+   * checks if the container is closed.
+   * @return - boolean
+   */
+  public synchronized  boolean isClosed() {
+    return ContainerLifeCycleState.CLOSED == state;
   }
 
   /**
@@ -280,24 +352,8 @@ public class ContainerData {
    */
   public synchronized void closeContainer() {
     // TODO: closed or closing here
-    setState(HddsProtos.LifeCycleState.CLOSED);
+    setState(ContainerLifeCycleState.CLOSED);
 
-    // Some thing brain dead for now. name + Time stamp of when we get the close
-    // container message.
-    setHash(DigestUtils.sha256Hex(this.getContainerName() +
-        Long.toString(Time.monotonicNow())));
-  }
-
-  /**
-   * Final hash for this container.
-   * @return - Hash
-   */
-  public String getHash() {
-    return hash;
-  }
-
-  public void setHash(String hash) {
-    this.hash = hash;
   }
 
   public void setMaxSize(long maxSize) {
@@ -316,11 +372,119 @@ public class ContainerData {
     this.bytesUsed.set(used);
   }
 
-  public long addBytesUsed(long delta) {
-    return this.bytesUsed.addAndGet(delta);
-  }
-
+  /**
+   * Get the number of bytes used by the container.
+   * @return the number of bytes used by the container.
+   */
   public long getBytesUsed() {
     return bytesUsed.get();
   }
+
+  /**
+   * Increase the number of bytes used by the container.
+   * @param used number of bytes used by the container.
+   * @return the current number of bytes used by the container afert increase.
+   */
+  public long incrBytesUsed(long used) {
+    return this.bytesUsed.addAndGet(used);
+  }
+
+
+  /**
+   * Decrease the number of bytes used by the container.
+   * @param reclaimed the number of bytes reclaimed from the container.
+   * @return the current number of bytes used by the container after decrease.
+   */
+  public long decrBytesUsed(long reclaimed) {
+    return this.bytesUsed.addAndGet(-1L * reclaimed);
+  }
+
+  /**
+   * Increase the count of pending deletion blocks.
+   *
+   * @param numBlocks increment number
+   */
+  public void incrPendingDeletionBlocks(int numBlocks) {
+    this.numPendingDeletionBlocks += numBlocks;
+  }
+
+  /**
+   * Decrease the count of pending deletion blocks.
+   *
+   * @param numBlocks decrement number
+   */
+  public void decrPendingDeletionBlocks(int numBlocks) {
+    this.numPendingDeletionBlocks -= numBlocks;
+  }
+
+  /**
+   * Get the number of pending deletion blocks.
+   */
+  public int getNumPendingDeletionBlocks() {
+    return this.numPendingDeletionBlocks;
+  }
+
+  /**
+   * Get the number of bytes read from the container.
+   * @return the number of bytes read from the container.
+   */
+  public long getReadBytes() {
+    return readBytes.get();
+  }
+
+  /**
+   * Increase the number of bytes read from the container.
+   * @param bytes number of bytes read.
+   */
+  public void incrReadBytes(long bytes) {
+    this.readBytes.addAndGet(bytes);
+  }
+
+  /**
+   * Get the number of times the container is read.
+   * @return the number of times the container is read.
+   */
+  public long getReadCount() {
+    return readCount.get();
+  }
+
+  /**
+   * Increase the number of container read count by 1.
+   */
+  public void incrReadCount() {
+    this.readCount.incrementAndGet();
+  }
+
+  /**
+   * Get the number of bytes write into the container.
+   * @return the number of bytes write into the container.
+   */
+  public long getWriteBytes() {
+    return writeBytes.get();
+  }
+
+  /**
+   * Increase the number of bytes write into the container.
+   * @param bytes the number of bytes write into the container.
+   */
+  public void incrWriteBytes(long bytes) {
+    this.writeBytes.addAndGet(bytes);
+  }
+
+  /**
+   * Get the number of writes into the container.
+   * @return the number of writes into the container.
+   */
+  public long getWriteCount() {
+    return writeCount.get();
+  }
+
+  /**
+   * Increase the number of writes into the container by 1.
+   */
+  public void incrWriteCount() {
+    this.writeCount.incrementAndGet();
+  }
+
+
 }

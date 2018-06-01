@@ -18,14 +18,23 @@
 
 package org.apache.hadoop.fs.s3a.s3guard;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.net.URI;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hadoop.util.StopWatch;
+import com.google.common.base.Preconditions;
+import org.apache.hadoop.fs.FileSystem;
 import org.junit.Assume;
 import org.junit.Test;
 
@@ -42,6 +51,8 @@ import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.util.ExitUtil;
 import org.apache.hadoop.util.StringUtils;
 
+import static org.apache.hadoop.fs.s3a.Constants.S3GUARD_METASTORE_NULL;
+import static org.apache.hadoop.fs.s3a.Constants.S3_METADATA_STORE_IMPL;
 import static org.apache.hadoop.fs.s3a.s3guard.S3GuardTool.E_BAD_STATE;
 import static org.apache.hadoop.fs.s3a.s3guard.S3GuardTool.SUCCESS;
 import static org.apache.hadoop.test.LambdaTestUtils.intercept;
@@ -56,7 +67,10 @@ public abstract class AbstractS3GuardToolTestBase extends AbstractS3ATestBase {
   protected static final String S3A_THIS_BUCKET_DOES_NOT_EXIST
       = "s3a://this-bucket-does-not-exist-00000000000";
 
+  private static final int PRUNE_MAX_AGE_SECS = 2;
+
   private MetadataStore ms;
+  private S3AFileSystem rawFs;
 
   protected static void expectResult(int expected,
       String message,
@@ -121,28 +135,34 @@ public abstract class AbstractS3GuardToolTestBase extends AbstractS3ATestBase {
     return ms;
   }
 
-  protected abstract MetadataStore newMetadataStore();
-
   @Override
   public void setup() throws Exception {
     super.setup();
     S3ATestUtils.assumeS3GuardState(true, getConfiguration());
-    ms = newMetadataStore();
-    ms.initialize(getFileSystem());
+    ms = getFileSystem().getMetadataStore();
+
+    // Also create a "raw" fs without any MetadataStore configured
+    Configuration conf = new Configuration(getConfiguration());
+    conf.set(S3_METADATA_STORE_IMPL, S3GUARD_METASTORE_NULL);
+    URI fsUri = getFileSystem().getUri();
+    rawFs = (S3AFileSystem) FileSystem.newInstance(fsUri, conf);
   }
 
   @Override
   public void teardown() throws Exception {
     super.teardown();
     IOUtils.cleanupWithLogger(LOG, ms);
+    IOUtils.closeStream(rawFs);
   }
 
   protected void mkdirs(Path path, boolean onS3, boolean onMetadataStore)
       throws IOException {
+    Preconditions.checkArgument(onS3 || onMetadataStore);
+    // getFileSystem() returns an fs with MetadataStore configured
+    S3AFileSystem fs = onMetadataStore ? getFileSystem() : rawFs;
     if (onS3) {
-      getFileSystem().mkdirs(path);
-    }
-    if (onMetadataStore) {
+      fs.mkdirs(path);
+    } else if (onMetadataStore) {
       S3AFileStatus status = new S3AFileStatus(true, path, OWNER);
       ms.put(new PathMetadata(status));
     }
@@ -170,35 +190,69 @@ public abstract class AbstractS3GuardToolTestBase extends AbstractS3ATestBase {
    */
   protected void createFile(Path path, boolean onS3, boolean onMetadataStore)
       throws IOException {
+    Preconditions.checkArgument(onS3 || onMetadataStore);
+    // getFileSystem() returns an fs with MetadataStore configured
+    S3AFileSystem fs = onMetadataStore ? getFileSystem() : rawFs;
     if (onS3) {
-      ContractTestUtils.touch(getFileSystem(), path);
-    }
-
-    if (onMetadataStore) {
+      ContractTestUtils.touch(fs, path);
+    } else if (onMetadataStore) {
       S3AFileStatus status = new S3AFileStatus(100L, System.currentTimeMillis(),
-          getFileSystem().qualify(path), 512L, "hdfs");
+          fs.qualify(path), 512L, "hdfs");
       putFile(ms, status);
     }
   }
 
+  /**
+   * Attempt to test prune() with sleep() without having flaky tests
+   * when things run slowly. Test is basically:
+   * 1. Set max path age to X seconds
+   * 2. Create some files (which writes entries to MetadataStore)
+   * 3. Sleep X+2 seconds (all files from above are now "stale")
+   * 4. Create some other files (these are "fresh").
+   * 5. Run prune on MetadataStore.
+   * 6. Assert that only files that were created before the sleep() were pruned.
+   *
+   * Problem is: #6 can fail if X seconds elapse between steps 4 and 5, since
+   * the newer files also become stale and get pruned.  This is easy to
+   * reproduce by running all integration tests in parallel with a ton of
+   * threads, or anything else that slows down execution a lot.
+   *
+   * Solution: Keep track of time elapsed between #4 and #5, and if it
+   * exceeds X, just print a warn() message instead of failing.
+   *
+   * @param cmdConf configuration for command
+   * @param parent path
+   * @param args command args
+   * @throws Exception
+   */
   private void testPruneCommand(Configuration cmdConf, Path parent,
       String...args) throws Exception {
     Path keepParent = path("prune-cli-keep");
+    StopWatch timer = new StopWatch();
     try {
-      getFileSystem().mkdirs(parent);
-      getFileSystem().mkdirs(keepParent);
-
       S3GuardTool.Prune cmd = new S3GuardTool.Prune(cmdConf);
       cmd.setMetadataStore(ms);
 
+      getFileSystem().mkdirs(parent);
+      getFileSystem().mkdirs(keepParent);
       createFile(new Path(parent, "stale"), true, true);
       createFile(new Path(keepParent, "stale-to-keep"), true, true);
-      Thread.sleep(TimeUnit.SECONDS.toMillis(2));
+
+      Thread.sleep(TimeUnit.SECONDS.toMillis(PRUNE_MAX_AGE_SECS + 2));
+
+      timer.start();
       createFile(new Path(parent, "fresh"), true, true);
 
       assertMetastoreListingCount(parent, "Children count before pruning", 2);
       exec(cmd, args);
-      assertMetastoreListingCount(parent, "Pruned children count", 1);
+      long msecElapsed = timer.now(TimeUnit.MILLISECONDS);
+      if (msecElapsed >= PRUNE_MAX_AGE_SECS * 1000) {
+        LOG.warn("Skipping an assertion: Test running too slowly ({} msec)",
+            msecElapsed);
+      } else {
+        assertMetastoreListingCount(parent, "Pruned children count remaining",
+            1);
+      }
       assertMetastoreListingCount(keepParent,
           "This child should have been kept (prefix restriction).", 1);
     } finally {
@@ -219,13 +273,14 @@ public abstract class AbstractS3GuardToolTestBase extends AbstractS3ATestBase {
   public void testPruneCommandCLI() throws Exception {
     Path testPath = path("testPruneCommandCLI");
     testPruneCommand(getFileSystem().getConf(), testPath,
-        "prune", "-seconds", "1", testPath.toString());
+        "prune", "-seconds", String.valueOf(PRUNE_MAX_AGE_SECS),
+        testPath.toString());
   }
 
   @Test
   public void testPruneCommandConf() throws Exception {
     getConfiguration().setLong(Constants.S3GUARD_CLI_PRUNE_AGE,
-        TimeUnit.SECONDS.toMillis(1));
+        TimeUnit.SECONDS.toMillis(PRUNE_MAX_AGE_SECS));
     Path testPath = path("testPruneCommandConf");
     testPruneCommand(getConfiguration(), testPath,
         "prune", testPath.toString());
@@ -281,7 +336,6 @@ public abstract class AbstractS3GuardToolTestBase extends AbstractS3ATestBase {
    * Execute a command, returning the buffer if the command actually completes.
    * If an exception is raised the output is logged instead.
    * @param cmd command
-   * @param buf buffer to use for tool output (not SLF4J output)
    * @param args argument list
    * @throws Exception on any failure
    */
@@ -316,4 +370,67 @@ public abstract class AbstractS3GuardToolTestBase extends AbstractS3ATestBase {
     assertEquals("Command " + cmd + " failed\n"+ buf, 0, r);
   }
 
+  @Test
+  public void testDiffCommand() throws Exception {
+    S3AFileSystem fs = getFileSystem();
+    ms = getMetadataStore();
+    Set<Path> filesOnS3 = new HashSet<>(); // files on S3.
+    Set<Path> filesOnMS = new HashSet<>(); // files on metadata store.
+
+    Path testPath = path("test-diff");
+    mkdirs(testPath, true, true);
+
+    Path msOnlyPath = new Path(testPath, "ms_only");
+    mkdirs(msOnlyPath, false, true);
+    filesOnMS.add(msOnlyPath);
+    for (int i = 0; i < 5; i++) {
+      Path file = new Path(msOnlyPath, String.format("file-%d", i));
+      createFile(file, false, true);
+      filesOnMS.add(file);
+    }
+
+    Path s3OnlyPath = new Path(testPath, "s3_only");
+    mkdirs(s3OnlyPath, true, false);
+    filesOnS3.add(s3OnlyPath);
+    for (int i = 0; i < 5; i++) {
+      Path file = new Path(s3OnlyPath, String.format("file-%d", i));
+      createFile(file, true, false);
+      filesOnS3.add(file);
+    }
+
+    ByteArrayOutputStream buf = new ByteArrayOutputStream();
+    S3GuardTool.Diff cmd = new S3GuardTool.Diff(fs.getConf());
+    cmd.setStore(ms);
+    exec(cmd, buf, "diff", "-meta", DYNAMODB_TABLE, testPath.toString());
+
+    Set<Path> actualOnS3 = new HashSet<>();
+    Set<Path> actualOnMS = new HashSet<>();
+    boolean duplicates = false;
+    try (BufferedReader reader =
+        new BufferedReader(new InputStreamReader(
+            new ByteArrayInputStream(buf.toByteArray())))) {
+      String line;
+      while ((line = reader.readLine()) != null) {
+        String[] fields = line.split("\\s");
+        assertEquals("[" + line + "] does not have enough fields",
+            4, fields.length);
+        String where = fields[0];
+        Path path = new Path(fields[3]);
+        if (S3GuardTool.Diff.S3_PREFIX.equals(where)) {
+          duplicates = duplicates || actualOnS3.contains(path);
+          actualOnS3.add(path);
+        } else if (S3GuardTool.Diff.MS_PREFIX.equals(where)) {
+          duplicates = duplicates || actualOnMS.contains(path);
+          actualOnMS.add(path);
+        } else {
+          fail("Unknown prefix: " + where);
+        }
+      }
+    }
+    String actualOut = buf.toString();
+    assertEquals("Mismatched metadata store outputs: " + actualOut,
+        filesOnMS, actualOnMS);
+    assertEquals("Mismatched s3 outputs: " + actualOut, filesOnS3, actualOnS3);
+    assertFalse("Diff contained duplicates", duplicates);
+  }
 }

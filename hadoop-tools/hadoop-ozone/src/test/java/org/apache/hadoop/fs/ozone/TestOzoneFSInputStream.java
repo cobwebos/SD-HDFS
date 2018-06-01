@@ -30,6 +30,7 @@ import org.apache.hadoop.hdfs.server.datanode.ObjectStoreHandler;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.ozone.MiniOzoneCluster;
 import org.apache.hadoop.ozone.OzoneConfigKeys;
+import org.apache.hadoop.ozone.OzoneConsts;
 import org.apache.hadoop.ozone.web.handlers.BucketArgs;
 import org.apache.hadoop.ozone.web.handlers.UserArgs;
 import org.apache.hadoop.ozone.web.interfaces.StorageHandler;
@@ -89,12 +90,13 @@ public class TestOzoneFSInputStream {
     // Fetch the host and port for File System init
     DatanodeDetails datanodeDetails = cluster.getHddsDatanodes().get(0)
         .getDatanodeDetails();
-    int port = datanodeDetails.getOzoneRestPort();
+    int port = datanodeDetails
+        .getPort(DatanodeDetails.Port.Name.REST).getValue();
     String host = datanodeDetails.getHostName();
 
     // Set the fs.defaultFS and start the filesystem
     String uri = String.format("%s://%s.%s/",
-        Constants.OZONE_URI_SCHEME, bucketName, volumeName);
+        OzoneConsts.OZONE_URI_SCHEME, bucketName, volumeName);
     conf.set(CommonConfigurationKeysPublic.FS_DEFAULT_NAME_KEY, uri);
     fs =  FileSystem.get(conf);
     int fileLen = 100 * 1024 * 1024;

@@ -41,8 +41,6 @@ import static org.apache.hadoop.hdds.scm.ScmConfigKeys
     .SCM_CONTAINER_CLIENT_STALE_THRESHOLD_DEFAULT;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys
     .SCM_CONTAINER_CLIENT_STALE_THRESHOLD_KEY;
-import static org.apache.hadoop.hdds.protocol.proto.HddsProtos
-    .ReplicationType.RATIS;
 
 /**
  * XceiverClientManager is responsible for the lifecycle of XceiverClient
@@ -60,8 +58,9 @@ public class XceiverClientManager implements Closeable {
 
   //TODO : change this to SCM configuration class
   private final Configuration conf;
-  private final Cache<String, XceiverClientSpi> clientCache;
+  private final Cache<Long, XceiverClientSpi> clientCache;
   private final boolean useRatis;
+  private final boolean useGrpc;
 
   private static XceiverClientMetrics metrics;
   /**
@@ -79,15 +78,17 @@ public class XceiverClientManager implements Closeable {
     this.useRatis = conf.getBoolean(
         ScmConfigKeys.DFS_CONTAINER_RATIS_ENABLED_KEY,
         ScmConfigKeys.DFS_CONTAINER_RATIS_ENABLED_DEFAULT);
+    this.useGrpc = conf.getBoolean(ScmConfigKeys.DFS_CONTAINER_GRPC_ENABLED_KEY,
+        ScmConfigKeys.DFS_CONTAINER_GRPC_ENABLED_DEFAULT);
     this.conf = conf;
     this.clientCache = CacheBuilder.newBuilder()
         .expireAfterAccess(staleThresholdMs, TimeUnit.MILLISECONDS)
         .maximumSize(maxSize)
         .removalListener(
-            new RemovalListener<String, XceiverClientSpi>() {
+            new RemovalListener<Long, XceiverClientSpi>() {
             @Override
             public void onRemoval(
-                RemovalNotification<String, XceiverClientSpi>
+                RemovalNotification<Long, XceiverClientSpi>
                   removalNotification) {
               synchronized (clientCache) {
                 // Mark the entry as evicted
@@ -99,7 +100,7 @@ public class XceiverClientManager implements Closeable {
   }
 
   @VisibleForTesting
-  public Cache<String, XceiverClientSpi> getClientCache() {
+  public Cache<Long, XceiverClientSpi> getClientCache() {
     return clientCache;
   }
 
@@ -114,14 +115,14 @@ public class XceiverClientManager implements Closeable {
    * @return XceiverClientSpi connected to a container
    * @throws IOException if a XceiverClientSpi cannot be acquired
    */
-  public XceiverClientSpi acquireClient(Pipeline pipeline)
+  public XceiverClientSpi acquireClient(Pipeline pipeline, long containerID)
       throws IOException {
     Preconditions.checkNotNull(pipeline);
     Preconditions.checkArgument(pipeline.getMachines() != null);
     Preconditions.checkArgument(!pipeline.getMachines().isEmpty());
 
     synchronized (clientCache) {
-      XceiverClientSpi info = getClient(pipeline);
+      XceiverClientSpi info = getClient(pipeline, containerID);
       info.incrementReference();
       return info;
     }
@@ -139,17 +140,26 @@ public class XceiverClientManager implements Closeable {
     }
   }
 
-  private XceiverClientSpi getClient(Pipeline pipeline)
+  private XceiverClientSpi getClient(Pipeline pipeline, long containerID)
       throws IOException {
-    String containerName = pipeline.getContainerName();
     try {
-      return clientCache.get(containerName,
+      return clientCache.get(containerID,
           new Callable<XceiverClientSpi>() {
           @Override
           public XceiverClientSpi call() throws Exception {
-            XceiverClientSpi client = pipeline.getType() == RATIS ?
-                    XceiverClientRatis.newXceiverClientRatis(pipeline, conf)
-                    : new XceiverClient(pipeline, conf);
+            XceiverClientSpi client = null;
+            switch (pipeline.getType()) {
+            case RATIS:
+              client = XceiverClientRatis.newXceiverClientRatis(pipeline, conf);
+              break;
+            case STAND_ALONE:
+              client = useGrpc ? new XceiverClientGrpc(pipeline, conf) :
+                  new XceiverClient(pipeline, conf);
+              break;
+            case CHAINED:
+            default:
+              throw new IOException ("not implemented" + pipeline.getType());
+            }
             client.connect();
             return client;
           }

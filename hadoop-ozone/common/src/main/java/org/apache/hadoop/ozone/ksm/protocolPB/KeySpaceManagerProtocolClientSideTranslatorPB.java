@@ -70,6 +70,10 @@ import org.apache.hadoop.ozone.protocol.proto
 import org.apache.hadoop.ozone.protocol.proto
     .KeySpaceManagerProtocolProtos.LocateKeyResponse;
 import org.apache.hadoop.ozone.protocol.proto
+    .KeySpaceManagerProtocolProtos.RenameKeyRequest;
+import org.apache.hadoop.ozone.protocol.proto
+    .KeySpaceManagerProtocolProtos.RenameKeyResponse;
+import org.apache.hadoop.ozone.protocol.proto
     .KeySpaceManagerProtocolProtos.KeyArgs;
 import org.apache.hadoop.ozone.protocol.proto
     .KeySpaceManagerProtocolProtos.SetVolumePropertyRequest;
@@ -556,8 +560,6 @@ public final class KeySpaceManagerProtocolClientSideTranslatorPB
         .setVolumeName(args.getVolumeName())
         .setBucketName(args.getBucketName())
         .setKeyName(args.getKeyName())
-        .setFactor(args.getFactor())
-        .setType(args.getType())
         .setDataSize(args.getDataSize()).build();
     req.setKeyArgs(keyArgs);
     req.setClientID(clientID);
@@ -621,6 +623,29 @@ public final class KeySpaceManagerProtocolClientSideTranslatorPB
           resp.getStatus());
     }
     return KsmKeyInfo.getFromProtobuf(resp.getKeyInfo());
+  }
+
+  @Override
+  public void renameKey(KsmKeyArgs args, String toKeyName) throws IOException {
+    RenameKeyRequest.Builder req = RenameKeyRequest.newBuilder();
+    KeyArgs keyArgs = KeyArgs.newBuilder()
+        .setVolumeName(args.getVolumeName())
+        .setBucketName(args.getBucketName())
+        .setKeyName(args.getKeyName())
+        .setDataSize(args.getDataSize()).build();
+    req.setKeyArgs(keyArgs);
+    req.setToKeyName(toKeyName);
+
+    final RenameKeyResponse resp;
+    try {
+      resp = rpcProxy.renameKey(NULL_RPC_CONTROLLER, req.build());
+    } catch (ServiceException e) {
+      throw ProtobufHelper.getRemoteException(e);
+    }
+    if (resp.getStatus() != Status.OK) {
+      throw new IOException("Rename key failed, error:" +
+          resp.getStatus());
+    }
   }
 
   /**

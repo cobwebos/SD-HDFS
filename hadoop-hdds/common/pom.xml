@@ -25,7 +25,7 @@ http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <artifactId>hadoop-hdds-common</artifactId>
   <version>0.2.1-SNAPSHOT</version>
   <description>Apache Hadoop Distributed Data Store Common</description>
-  <name>Apache HDDS Common</name>
+  <name>Apache Hadoop HDDS Common</name>
   <packaging>jar</packaging>
 
   <properties>
@@ -61,6 +61,12 @@ http://maven.apache.org/xsd/maven-4.0.0.xsd">
       <artifactId>ratis-grpc</artifactId>
       <groupId>org.apache.ratis</groupId>
     </dependency>
+    <dependency>
+      <groupId>com.google.errorprone</groupId>
+      <artifactId>error_prone_annotations</artifactId>
+      <version>2.2.0</version>
+      <optional>true</optional>
+    </dependency>
 
     <dependency>
       <groupId>org.rocksdb</groupId>
@@ -78,7 +84,69 @@ http://maven.apache.org/xsd/maven-4.0.0.xsd">
   </dependencies>
 
   <build>
+    <extensions>
+      <extension>
+        <groupId>kr.motd.maven</groupId>
+        <artifactId>os-maven-plugin</artifactId>
+        <version>${os-maven-plugin.version}</version>
+      </extension>
+    </extensions>
     <plugins>
+      <plugin>
+        <groupId>org.xolstice.maven.plugins</groupId>
+        <artifactId>protobuf-maven-plugin</artifactId>
+        <version>${protobuf-maven-plugin.version}</version>
+        <extensions>true</extensions>
+        <configuration>
+          <protocArtifact>
+            com.google.protobuf:protoc:${protobuf-compile.version}:exe:${os.detected.classifier}
+          </protocArtifact>
+          <protoSourceRoot>${basedir}/src/main/proto/</protoSourceRoot>
+          <includes>
+            <include>DatanodeContainerProtocol.proto</include>
+          </includes>
+          <outputDirectory>target/generated-sources/java</outputDirectory>
+          <clearOutputDirectory>false</clearOutputDirectory>
+        </configuration>
+        <executions>
+          <execution>
+            <id>compile-protoc</id>
+              <goals>
+                <goal>compile</goal>
+                <goal>test-compile</goal>
+                <goal>compile-custom</goal>
+                <goal>test-compile-custom</goal>
+              </goals>
+              <configuration>
+                <pluginId>grpc-java</pluginId>
+                <pluginArtifact>
+                  io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}
+                </pluginArtifact>
+              </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>generate-sources</phase>
+            <configuration>
+              <tasks>
+                <replace token="com.google.protobuf" value="org.apache.ratis.shaded.com.google.protobuf"
+                  dir="target/generated-sources/java/org/apache/hadoop/hdds/protocol/datanode/proto">
+                </replace>
+                <replace token="io.grpc" value="org.apache.ratis.shaded.io.grpc"
+                  dir="target/generated-sources/java/org/apache/hadoop/hdds/protocol/datanode/proto">
+                </replace>
+              </tasks>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.hadoop</groupId>
         <artifactId>hadoop-maven-plugins</artifactId>
@@ -107,7 +175,6 @@ http://maven.apache.org/xsd/maven-4.0.0.xsd">
                 <directory>${basedir}/src/main/proto</directory>
                 <includes>
                   <include>StorageContainerLocationProtocol.proto</include>
-                  <include>DatanodeContainerProtocol.proto</include>
                   <include>hdds.proto</include>
                   <include>ScmBlockLocationProtocol.proto</include>
                 </includes>

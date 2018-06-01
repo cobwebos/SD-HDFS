@@ -25,7 +25,7 @@ import org.apache.hadoop.fs.FileAlreadyExistsException;
 import org.apache.hadoop.hdds.scm.container.common.helpers
     .StorageContainerException;
 import org.apache.hadoop.hdds.protocol.DatanodeDetails;
-import org.apache.hadoop.hdds.protocol.proto.ContainerProtos;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos;
 import org.apache.hadoop.ozone.OzoneConsts;
 import org.apache.hadoop.ozone.container.common.impl.ContainerManagerImpl;
@@ -42,12 +42,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import static org.apache.commons.io.FilenameUtils.removeExtension;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos.Result
     .INVALID_ARGUMENT;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos.Result
     .UNABLE_TO_FIND_DATA_DIR;
 import static org.apache.hadoop.ozone.OzoneConsts.CONTAINER_EXTENSION;
-import static org.apache.hadoop.ozone.OzoneConsts.CONTAINER_META;
+
 
 /**
  * A set of helper functions to create proper responses.
@@ -184,14 +184,19 @@ public final class ContainerUtils {
         removeExtension(containerFile.getName())).toString();
   }
 
+  public static long getContainerIDFromFile(File containerFile) {
+    Preconditions.checkNotNull(containerFile);
+    String containerID = getContainerNameFromFile(containerFile);
+    return Long.parseLong(containerID);
+  }
+
   /**
    * Verifies that this in indeed a new container.
    *
    * @param containerFile - Container File to verify
-   * @param metadataFile - metadata File to verify
    * @throws IOException
    */
-  public static void verifyIsNewContainer(File containerFile, File metadataFile)
+  public static void verifyIsNewContainer(File containerFile)
       throws IOException {
     Logger log = LoggerFactory.getLogger(ContainerManagerImpl.class);
     if (containerFile.exists()) {
@@ -199,13 +204,6 @@ public final class ContainerUtils {
           containerFile.toPath());
       throw new FileAlreadyExistsException("container already exists on " +
           "disk.");
-    }
-
-    if (metadataFile.exists()) {
-      log.error("metadata found on disk, but missing container. Refusing to" +
-          " write this container. File: {} ", metadataFile.toPath());
-      throw new FileAlreadyExistsException(("metadata found on disk, but " +
-          "missing container. Refusing to write this container."));
     }
 
     File parentPath = new File(containerFile.getParent());
@@ -222,11 +220,6 @@ public final class ContainerUtils {
       throw new IOException("creation of a new container file failed.");
     }
 
-    if (!metadataFile.createNewFile()) {
-      log.error("creation of the metadata file failed. File: {}",
-          metadataFile.toPath());
-      throw new IOException("creation of a new container file failed.");
-    }
   }
 
   public static String getContainerDbFileName(String containerName) {
@@ -281,20 +274,6 @@ public final class ContainerUtils {
   }
 
   /**
-   * Returns Metadata location.
-   *
-   * @param containerData - Data
-   * @param location - Path
-   * @return Path
-   */
-  public static File getMetadataFile(ContainerData containerData,
-      Path location) {
-    return location.resolve(containerData
-        .getContainerName().concat(CONTAINER_META))
-        .toFile();
-  }
-
-  /**
    * Returns container file location.
    *
    * @param containerData - Data
@@ -303,8 +282,8 @@ public final class ContainerUtils {
    */
   public static File getContainerFile(ContainerData containerData,
       Path location) {
-    return location.resolve(containerData
-        .getContainerName().concat(CONTAINER_EXTENSION))
+    return location.resolve(Long.toString(containerData
+        .getContainerID()).concat(CONTAINER_EXTENSION))
         .toFile();
   }
 
@@ -389,10 +368,10 @@ public final class ContainerUtils {
     String rootPath = getContainerNameFromFile(new File(containerData
         .getContainerPath()));
     Path containerPath = Paths.get(rootPath.concat(CONTAINER_EXTENSION));
-    Path metaPath = Paths.get(rootPath.concat(CONTAINER_META));
+
 
     FileUtils.forceDelete(containerPath.toFile());
-    FileUtils.forceDelete(metaPath.toFile());
+
   }
 
   /**

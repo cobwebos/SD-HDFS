@@ -20,27 +20,28 @@ package org.apache.hadoop.ozone.container.common.impl;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdds.scm.ScmConfigKeys;
-import org.apache.hadoop.hdds.scm.container.common.helpers.Pipeline;
 import org.apache.hadoop.hdds.scm.container.common.helpers
     .StorageContainerException;
 import org.apache.hadoop.hdfs.server.datanode.StorageLocation;
+import org.apache.hadoop.hdds.protocol.proto.HddsProtos;
+import org.apache.hadoop.hdds.protocol.proto.HddsProtos.LifeCycleState;
 import org.apache.hadoop.hdds.protocol.DatanodeDetails;
-import org.apache.hadoop.hdds.protocol.proto.ContainerProtos;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .ContainerLifeCycleState;
 import org.apache.hadoop.hdds.protocol.proto
     .StorageContainerDatanodeProtocolProtos;
 import org.apache.hadoop.hdds.protocol.proto
-    .StorageContainerDatanodeProtocolProtos.ContainerReportsRequestProto;
+    .StorageContainerDatanodeProtocolProtos.ContainerReportsProto;
 import org.apache.hadoop.hdds.protocol.proto
-    .StorageContainerDatanodeProtocolProtos.ReportState;
+    .StorageContainerDatanodeProtocolProtos.NodeReportProto;
 import org.apache.hadoop.hdds.protocol.proto
-    .StorageContainerDatanodeProtocolProtos.SCMNodeReport;
-import org.apache.hadoop.hdds.protocol.proto
-    .StorageContainerDatanodeProtocolProtos.SCMStorageReport;
+    .StorageContainerDatanodeProtocolProtos.StorageReportProto;
 import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.ozone.OzoneConfigKeys;
 import org.apache.hadoop.ozone.OzoneConsts;
 import org.apache.hadoop.ozone.container.common.helpers.ContainerData;
 import org.apache.hadoop.ozone.container.common.helpers.ContainerUtils;
@@ -81,28 +82,29 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_DATA_DIR_KEY;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .CONTAINER_EXISTS;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .CONTAINER_INTERNAL_ERROR;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .CONTAINER_NOT_FOUND;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .ERROR_IN_COMPACT_DB;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .INVALID_CONFIG;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .IO_EXCEPTION;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .NO_SUCH_ALGORITHM;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .UNABLE_TO_READ_METADATA_DB;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .UNCLOSED_CONTAINER_IO;
-import static org.apache.hadoop.hdds.protocol.proto.ContainerProtos.Result
-    .UNSUPPORTED_REQUEST;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.CONTAINER_EXISTS;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.CONTAINER_INTERNAL_ERROR;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.CONTAINER_NOT_FOUND;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.ERROR_IN_COMPACT_DB;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.INVALID_CONFIG;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.IO_EXCEPTION;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.NO_SUCH_ALGORITHM;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.UNABLE_TO_READ_METADATA_DB;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.UNCLOSED_CONTAINER_IO;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
+    .Result.UNSUPPORTED_REQUEST;
+import static org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos.
+    Result.INVALID_CONTAINER_STATE;
 import static org.apache.hadoop.ozone.OzoneConsts.CONTAINER_EXTENSION;
-import static org.apache.hadoop.ozone.OzoneConsts.CONTAINER_META;
 
 /**
  * A Generic ContainerManagerImpl that will be called from Ozone
@@ -113,7 +115,9 @@ public class ContainerManagerImpl implements ContainerManager {
   static final Logger LOG =
       LoggerFactory.getLogger(ContainerManagerImpl.class);
 
-  private final ConcurrentSkipListMap<String, ContainerStatus>
+  // TODO: consider primitive collection like eclipse-collections
+  // to avoid autoboxing overhead
+  private final ConcurrentSkipListMap<Long, ContainerData>
       containerMap = new ConcurrentSkipListMap<>();
 
   // Use a non-fair RW lock for better throughput, we may revisit this decision
@@ -229,52 +233,34 @@ public class ContainerManagerImpl implements ContainerManager {
     Preconditions.checkNotNull(keyName,
         "Container Name  to container key mapping is null");
 
+    long containerID = Long.parseLong(keyName);
     try {
       String containerFileName = containerName.concat(CONTAINER_EXTENSION);
-      String metaFileName = containerName.concat(CONTAINER_META);
 
       containerStream = new FileInputStream(containerFileName);
 
-      metaStream = new FileInputStream(metaFileName);
-
-      MessageDigest sha = MessageDigest.getInstance(OzoneConsts.FILE_HASH);
-
-      dis = new DigestInputStream(containerStream, sha);
-
       ContainerProtos.ContainerData containerDataProto =
-          ContainerProtos.ContainerData.parseDelimitedFrom(dis);
+          ContainerProtos.ContainerData.parseDelimitedFrom(containerStream);
       ContainerData containerData;
       if (containerDataProto == null) {
         // Sometimes container metadata might have been created but empty,
         // when loading the info we get a null, this often means last time
         // SCM was ending up at some middle phase causing that the metadata
         // was not populated. Such containers are marked as inactive.
-        containerMap.put(keyName, new ContainerStatus(null));
+        ContainerData cData = new ContainerData(containerID, conf,
+            ContainerLifeCycleState.INVALID);
+        containerMap.put(containerID, cData);
         return;
       }
       containerData = ContainerData.getFromProtBuf(containerDataProto, conf);
-      ContainerProtos.ContainerMeta meta =
-          ContainerProtos.ContainerMeta.parseDelimitedFrom(metaStream);
-      if (meta != null && !DigestUtils.sha256Hex(sha.digest())
-          .equals(meta.getHash())) {
-        // This means we were not able read data from the disk when booted the
-        // datanode. We are going to rely on SCM understanding that we don't
-        // have valid data for this container when we send container reports.
-        // Hopefully SCM will ask us to delete this container and rebuild it.
-        LOG.error("Invalid SHA found for container data. Name :{}"
-            + "cowardly refusing to read invalid data", containerName);
-        containerMap.put(keyName, new ContainerStatus(null));
-        return;
-      }
 
-      ContainerStatus containerStatus = new ContainerStatus(containerData);
       // Initialize pending deletion blocks count in in-memory
       // container status.
       MetadataStore metadata = KeyUtils.getDB(containerData, conf);
       List<Map.Entry<byte[], byte[]>> underDeletionBlocks = metadata
           .getSequentialRangeKVs(null, Integer.MAX_VALUE,
               MetadataKeyFilters.getDeletingKeyFilter());
-      containerStatus.incrPendingDeletionBlocks(underDeletionBlocks.size());
+      containerData.incrPendingDeletionBlocks(underDeletionBlocks.size());
 
       List<Map.Entry<byte[], byte[]>> liveKeys = metadata
           .getRangeKVs(null, Integer.MAX_VALUE,
@@ -293,17 +279,19 @@ public class ContainerManagerImpl implements ContainerManager {
           return 0L;
         }
       }).sum();
-      containerStatus.setBytesUsed(bytesUsed);
+      containerData.setBytesUsed(bytesUsed);
 
-      containerMap.put(keyName, containerStatus);
-    } catch (IOException | NoSuchAlgorithmException ex) {
+      containerMap.put(containerID, containerData);
+    } catch (IOException ex) {
       LOG.error("read failed for file: {} ex: {}", containerName,
           ex.getMessage());
 
       // TODO : Add this file to a recovery Queue.
 
       // Remember that this container is busted and we cannot use it.
-      containerMap.put(keyName, new ContainerStatus(null));
+      ContainerData cData = new ContainerData(containerID, conf,
+          ContainerLifeCycleState.INVALID);
+      containerMap.put(containerID, cData);
       throw new StorageContainerException("Unable to read container info",
           UNABLE_TO_READ_METADATA_DB);
     } finally {
@@ -316,18 +304,17 @@ public class ContainerManagerImpl implements ContainerManager {
   /**
    * Creates a container with the given name.
    *
-   * @param pipeline -- Nodes which make up this container.
    * @param containerData - Container Name and metadata.
    * @throws StorageContainerException - Exception
    */
   @Override
-  public void createContainer(Pipeline pipeline, ContainerData containerData)
+  public void createContainer(ContainerData containerData)
       throws StorageContainerException {
     Preconditions.checkNotNull(containerData, "Container data cannot be null");
     writeLock();
     try {
-      if (containerMap.containsKey(containerData.getName())) {
-        LOG.debug("container already exists. {}", containerData.getName());
+      if (containerMap.containsKey(containerData.getContainerID())) {
+        LOG.debug("container already exists. {}", containerData.getContainerID());
         throw new StorageContainerException("container already exists.",
             CONTAINER_EXISTS);
       }
@@ -397,12 +384,10 @@ public class ContainerManagerImpl implements ContainerManager {
 
       File containerFile = ContainerUtils.getContainerFile(containerData,
           location);
-      File metadataFile = ContainerUtils.getMetadataFile(containerData,
-          location);
-      String containerName = containerData.getContainerName();
+      String containerName = Long.toString(containerData.getContainerID());
 
       if(!overwrite) {
-        ContainerUtils.verifyIsNewContainer(containerFile, metadataFile);
+        ContainerUtils.verifyIsNewContainer(containerFile);
         metadataPath = this.locationManager.getDataPath(containerName);
         metadataPath = ContainerUtils.createMetadata(metadataPath,
             containerName, conf);
@@ -411,7 +396,7 @@ public class ContainerManagerImpl implements ContainerManager {
       }
 
       containerStream = new FileOutputStream(containerFile);
-      metaStream = new FileOutputStream(metadataFile);
+
       MessageDigest sha = MessageDigest.getInstance(OzoneConsts.FILE_HASH);
 
       dos = new DigestOutputStream(containerStream, sha);
@@ -420,16 +405,15 @@ public class ContainerManagerImpl implements ContainerManager {
           .toString());
       containerData.setContainerPath(containerFile.toString());
 
+      if(containerData.getContainerDBType() == null) {
+        String impl = conf.getTrimmed(OzoneConfigKeys.OZONE_METADATA_STORE_IMPL,
+            OzoneConfigKeys.OZONE_METADATA_STORE_IMPL_DEFAULT);
+        containerData.setContainerDBType(impl);
+      }
+
       ContainerProtos.ContainerData protoData = containerData
           .getProtoBufMessage();
       protoData.writeDelimitedTo(dos);
-
-      ContainerProtos.ContainerMeta protoMeta = ContainerProtos
-          .ContainerMeta.newBuilder()
-          .setFileName(containerFile.toString())
-          .setHash(DigestUtils.sha256Hex(sha.digest()))
-          .build();
-      protoMeta.writeDelimitedTo(metaStream);
 
     } catch (IOException ex) {
       // TODO : we need to clean up partially constructed files
@@ -446,7 +430,7 @@ public class ContainerManagerImpl implements ContainerManager {
 
       LOG.error("Creation of container failed. Name: {}, we might need to " +
               "cleanup partially created artifacts. ",
-          containerData.getContainerName(), ex);
+          containerData.getContainerID(), ex);
       throw new StorageContainerException("Container creation failed. ",
           ex, CONTAINER_INTERNAL_ERROR);
     } finally {
@@ -459,45 +443,46 @@ public class ContainerManagerImpl implements ContainerManager {
   /**
    * Deletes an existing container.
    *
-   * @param pipeline - nodes that make this container.
-   * @param containerName - name of the container.
+   * @param containerID - ID of the container.
    * @param forceDelete - whether this container should be deleted forcibly.
    * @throws StorageContainerException
    */
   @Override
-  public void deleteContainer(Pipeline pipeline, String containerName,
+  public void deleteContainer(long containerID,
       boolean forceDelete) throws StorageContainerException {
-    Preconditions.checkNotNull(containerName, "Container name cannot be null");
-    Preconditions.checkState(containerName.length() > 0,
-        "Container name length cannot be zero.");
+    Preconditions.checkState(containerID >= 0,
+        "Container ID cannot be negative.");
     writeLock();
     try {
-      if (isOpen(pipeline.getContainerName())) {
+      if (isOpen(containerID)) {
         throw new StorageContainerException(
             "Deleting an open container is not allowed.",
             UNCLOSED_CONTAINER_IO);
       }
 
-      ContainerStatus status = containerMap.get(containerName);
-      if (status == null) {
-        LOG.debug("No such container. Name: {}", containerName);
-        throw new StorageContainerException("No such container. Name : " +
-            containerName, CONTAINER_NOT_FOUND);
+      ContainerData containerData = containerMap.get(containerID);
+      if (containerData == null) {
+        LOG.debug("No such container. ID: {}", containerID);
+        throw new StorageContainerException("No such container. ID : " +
+            containerID, CONTAINER_NOT_FOUND);
       }
-      if (status.getContainer() == null) {
-        LOG.debug("Invalid container data. Name: {}", containerName);
+
+      if(!containerData.isValid()) {
+        LOG.debug("Invalid container data. ID: {}", containerID);
         throw new StorageContainerException("Invalid container data. Name : " +
-            containerName, CONTAINER_NOT_FOUND);
+            containerID, CONTAINER_NOT_FOUND);
       }
-      ContainerUtils.removeContainer(status.getContainer(), conf, forceDelete);
-      containerMap.remove(containerName);
+      ContainerUtils.removeContainer(containerData, conf, forceDelete);
+      containerMap.remove(containerID);
     } catch (StorageContainerException e) {
       throw e;
     } catch (IOException e) {
       // TODO : An I/O error during delete can leave partial artifacts on the
       // disk. We will need the cleaner thread to cleanup this information.
-      LOG.error("Failed to cleanup container. Name: {}", containerName, e);
-      throw new StorageContainerException(containerName, e, IO_EXCEPTION);
+      String errMsg = String.format("Failed to cleanup container. ID: %d",
+          containerID);
+      LOG.error(errMsg, e);
+      throw new StorageContainerException(errMsg, e, IO_EXCEPTION);
     } finally {
       writeUnlock();
     }
@@ -511,31 +496,35 @@ public class ContainerManagerImpl implements ContainerManager {
    * time. It is possible that using this iteration you can miss certain
    * container from the listing.
    *
-   * @param prefix -  Return keys that match this prefix.
+   * @param startContainerID -  Return containers with ID >= startContainerID.
    * @param count - how many to return
-   * @param prevKey - Previous Key Value or empty String.
    * @param data - Actual containerData
    * @throws StorageContainerException
    */
   @Override
-  public void listContainer(String prefix, long count, String prevKey,
+  public void listContainer(long startContainerID, long count,
       List<ContainerData> data) throws StorageContainerException {
-    // TODO : Support list with Prefix and PrevKey
     Preconditions.checkNotNull(data,
         "Internal assertion: data cannot be null");
+    Preconditions.checkState(startContainerID >= 0,
+        "Start container ID cannot be negative");
+    Preconditions.checkState(count > 0,
+        "max number of containers returned " +
+            "must be positive");
+
     readLock();
     try {
-      ConcurrentNavigableMap<String, ContainerStatus> map;
-      if (prevKey == null || prevKey.isEmpty()) {
+      ConcurrentNavigableMap<Long, ContainerData> map;
+      if (startContainerID == 0) {
         map = containerMap.tailMap(containerMap.firstKey(), true);
       } else {
-        map = containerMap.tailMap(prevKey, false);
+        map = containerMap.tailMap(startContainerID, false);
       }
 
       int currentCount = 0;
-      for (ContainerStatus entry : map.values()) {
+      for (ContainerData entry : map.values()) {
         if (currentCount < count) {
-          data.add(entry.getContainer());
+          data.add(entry);
           currentCount++;
         } else {
           return;
@@ -549,24 +538,23 @@ public class ContainerManagerImpl implements ContainerManager {
   /**
    * Get metadata about a specific container.
    *
-   * @param containerName - Name of the container
+   * @param containerID - ID of the container
    * @return ContainerData - Container Data.
    * @throws StorageContainerException
    */
   @Override
-  public ContainerData readContainer(String containerName) throws
-      StorageContainerException {
-    Preconditions.checkNotNull(containerName, "Container name cannot be null");
-    Preconditions.checkState(containerName.length() > 0,
-        "Container name length cannot be zero.");
-    if (!containerMap.containsKey(containerName)) {
-      throw new StorageContainerException("Unable to find the container. Name: "
-          + containerName, CONTAINER_NOT_FOUND);
+  public ContainerData readContainer(long containerID)
+      throws StorageContainerException {
+    Preconditions.checkState(containerID >= 0,
+        "Container ID cannot be negative.");
+    if (!containerMap.containsKey(containerID)) {
+      throw new StorageContainerException("Unable to find the container. ID: "
+          + containerID, CONTAINER_NOT_FOUND);
     }
-    ContainerData cData = containerMap.get(containerName).getContainer();
+    ContainerData cData = containerMap.get(containerID);
     if (cData == null) {
-      throw new StorageContainerException("Invalid container data. Name: "
-          + containerName, CONTAINER_INTERNAL_ERROR);
+      throw new StorageContainerException("Invalid container data. ID: "
+          + containerID, CONTAINER_INTERNAL_ERROR);
     }
     return cData;
   }
@@ -575,13 +563,13 @@ public class ContainerManagerImpl implements ContainerManager {
    * Closes a open container, if it is already closed or does not exist a
    * StorageContainerException is thrown.
    *
-   * @param containerName - Name of the container.
+   * @param containerID - ID of the container.
    * @throws StorageContainerException
    */
   @Override
-  public void closeContainer(String containerName)
+  public void closeContainer(long containerID)
       throws StorageContainerException, NoSuchAlgorithmException {
-    ContainerData containerData = readContainer(containerName);
+    ContainerData containerData = readContainer(containerID);
     containerData.closeContainer();
     writeContainerInfo(containerData, true);
     MetadataStore db = KeyUtils.getDB(containerData, conf);
@@ -601,16 +589,13 @@ public class ContainerManagerImpl implements ContainerManager {
     // I/O failure, this allows us to take quick action in case of container
     // issues.
 
-    ContainerStatus status = new ContainerStatus(containerData);
-    containerMap.put(containerName, status);
+    containerMap.put(containerID, containerData);
   }
 
   @Override
-  public void updateContainer(Pipeline pipeline, String containerName,
-      ContainerData data, boolean forceUpdate)
-      throws StorageContainerException {
-    Preconditions.checkNotNull(pipeline, "Pipeline cannot be null");
-    Preconditions.checkNotNull(containerName, "Container name cannot be null");
+  public void updateContainer(long containerID, ContainerData data,
+      boolean forceUpdate) throws StorageContainerException {
+    Preconditions.checkState(containerID >= 0, "Container ID cannot be negative.");
     Preconditions.checkNotNull(data, "Container data cannot be null");
     FileOutputStream containerStream = null;
     DigestOutputStream dos = null;
@@ -618,9 +603,9 @@ public class ContainerManagerImpl implements ContainerManager {
     File containerFileBK = null, containerFile = null;
     boolean deleted = false;
 
-    if(!containerMap.containsKey(containerName)) {
+    if(!containerMap.containsKey(containerID)) {
       throw new StorageContainerException("Container doesn't exist. Name :"
-          + containerName, CONTAINER_NOT_FOUND);
+          + containerID, CONTAINER_NOT_FOUND);
     }
 
     try {
@@ -633,7 +618,7 @@ public class ContainerManagerImpl implements ContainerManager {
 
     try {
       Path location = locationManager.getContainerPath();
-      ContainerData orgData = containerMap.get(containerName).getContainer();
+      ContainerData orgData = containerMap.get(containerID);
       if (orgData == null) {
         // updating a invalid container
         throw new StorageContainerException("Update a container with invalid" +
@@ -642,7 +627,7 @@ public class ContainerManagerImpl implements ContainerManager {
 
       if (!forceUpdate && !orgData.isOpen()) {
         throw new StorageContainerException(
-            "Update a closed container is not allowed. Name: " + containerName,
+            "Update a closed container is not allowed. ID: " + containerID,
             UNSUPPORTED_REQUEST);
       }
 
@@ -652,7 +637,7 @@ public class ContainerManagerImpl implements ContainerManager {
       if (!forceUpdate) {
         if (!containerFile.exists() || !containerFile.canWrite()) {
           throw new StorageContainerException(
-              "Container file not exists or corrupted. Name: " + containerName,
+              "Container file not exists or corrupted. ID: " + containerID,
               CONTAINER_INTERNAL_ERROR);
         }
 
@@ -671,8 +656,7 @@ public class ContainerManagerImpl implements ContainerManager {
       }
 
       // Update the in-memory map
-      ContainerStatus newStatus = new ContainerStatus(data);
-      containerMap.replace(containerName, newStatus);
+      containerMap.replace(containerID, data);
     } catch (IOException e) {
       // Restore the container file from backup
       if(containerFileBK != null && containerFileBK.exists() && deleted) {
@@ -683,8 +667,8 @@ public class ContainerManagerImpl implements ContainerManager {
               CONTAINER_INTERNAL_ERROR);
         } else {
           throw new StorageContainerException(
-              "Failed to restore container data from the backup. Name: "
-                  + containerName, CONTAINER_INTERNAL_ERROR);
+              "Failed to restore container data from the backup. ID: "
+                  + containerID, CONTAINER_INTERNAL_ERROR);
         }
       } else {
         throw new StorageContainerException(
@@ -711,24 +695,52 @@ public class ContainerManagerImpl implements ContainerManager {
   /**
    * Checks if a container exists.
    *
-   * @param containerName - Name of the container.
+   * @param containerID - ID of the container.
    * @return true if the container is open false otherwise.
    * @throws StorageContainerException - Throws Exception if we are not able to
    *                                   find the container.
    */
   @Override
-  public boolean isOpen(String containerName) throws StorageContainerException {
-    final ContainerStatus status = containerMap.get(containerName);
-    if (status == null) {
+  public boolean isOpen(long containerID) throws StorageContainerException {
+    final ContainerData containerData = containerMap.get(containerID);
+    if (containerData == null) {
       throw new StorageContainerException(
-          "Container status not found: " + containerName, CONTAINER_NOT_FOUND);
+          "Container not found: " + containerID, CONTAINER_NOT_FOUND);
     }
-    final ContainerData cData = status.getContainer();
-    if (cData == null) {
+    return containerData.isOpen();
+  }
+
+  /**
+   * Returns LifeCycle State of the container
+   * @param containerID - Id of the container
+   * @return LifeCycle State of the container
+   * @throws StorageContainerException
+   */
+  private HddsProtos.LifeCycleState getState(long containerID)
+      throws StorageContainerException {
+    LifeCycleState state;
+    final ContainerData data = containerMap.get(containerID);
+    if (data == null) {
       throw new StorageContainerException(
-          "Container not found: " + containerName, CONTAINER_NOT_FOUND);
+          "Container status not found: " + containerID, CONTAINER_NOT_FOUND);
     }
-    return cData.isOpen();
+    switch (data.getState()) {
+    case OPEN:
+      state = LifeCycleState.OPEN;
+      break;
+    case CLOSING:
+      state = LifeCycleState.CLOSING;
+      break;
+    case CLOSED:
+      state = LifeCycleState.CLOSED;
+      break;
+    default:
+      throw new StorageContainerException(
+          "Invalid Container state found: " + containerID,
+          INVALID_CONTAINER_STATE);
+    }
+
+    return state;
   }
 
   /**
@@ -746,7 +758,7 @@ public class ContainerManagerImpl implements ContainerManager {
 
 
   @VisibleForTesting
-  public ConcurrentSkipListMap<String, ContainerStatus> getContainerMap() {
+  public ConcurrentSkipListMap<Long, ContainerData> getContainerMap() {
     return containerMap;
   }
 
@@ -842,16 +854,12 @@ public class ContainerManagerImpl implements ContainerManager {
    * @return node report.
    */
   @Override
-  public SCMNodeReport getNodeReport() throws IOException {
+  public NodeReportProto getNodeReport() throws IOException {
     StorageLocationReport[] reports = locationManager.getLocationReport();
-    SCMNodeReport.Builder nrb = SCMNodeReport.newBuilder();
+    NodeReportProto.Builder nrb = NodeReportProto.newBuilder();
     for (int i = 0; i < reports.length; i++) {
-      SCMStorageReport.Builder srb = SCMStorageReport.newBuilder();
-      nrb.addStorageReport(i, srb.setStorageUuid(reports[i].getId())
-          .setCapacity(reports[i].getCapacity())
-          .setScmUsed(reports[i].getScmUsed())
-          .setRemaining(reports[i].getRemaining())
-          .build());
+      StorageReportProto.Builder srb = StorageReportProto.newBuilder();
+      nrb.addStorageReport(reports[i].getProtoBufMessage());
     }
     return nrb.build();
   }
@@ -864,15 +872,15 @@ public class ContainerManagerImpl implements ContainerManager {
    * @throws IOException
    */
   @Override
-  public List<ContainerData> getContainerReports() throws IOException {
+  public List<ContainerData> getClosedContainerReports() throws IOException {
     LOG.debug("Starting container report iteration.");
     // No need for locking since containerMap is a ConcurrentSkipListMap
     // And we can never get the exact state since close might happen
     // after we iterate a point.
     return containerMap.entrySet().stream()
-        .filter(containerStatus ->
-            !containerStatus.getValue().getContainer().isOpen())
-        .map(containerStatus -> containerStatus.getValue().getContainer())
+        .filter(containerData ->
+            containerData.getValue().isClosed())
+        .map(containerData -> containerData.getValue())
         .collect(Collectors.toList());
   }
 
@@ -883,37 +891,31 @@ public class ContainerManagerImpl implements ContainerManager {
    * @throws IOException
    */
   @Override
-  public ContainerReportsRequestProto getContainerReport() throws IOException {
+  public ContainerReportsProto getContainerReport() throws IOException {
     LOG.debug("Starting container report iteration.");
     // No need for locking since containerMap is a ConcurrentSkipListMap
     // And we can never get the exact state since close might happen
     // after we iterate a point.
-    List<ContainerStatus> containers = containerMap.values().stream()
+    List<ContainerData> containers = containerMap.values().stream()
         .collect(Collectors.toList());
 
-    ContainerReportsRequestProto.Builder crBuilder =
-        ContainerReportsRequestProto.newBuilder();
+    ContainerReportsProto.Builder crBuilder =
+        ContainerReportsProto.newBuilder();
 
-    // TODO: support delta based container report
-    crBuilder.setDatanodeDetails(datanodeDetails.getProtoBufMessage())
-        .setType(ContainerReportsRequestProto.reportType.fullReport);
-
-    for (ContainerStatus container: containers) {
+    for (ContainerData container: containers) {
+      long containerId = container.getContainerID();
       StorageContainerDatanodeProtocolProtos.ContainerInfo.Builder ciBuilder =
           StorageContainerDatanodeProtocolProtos.ContainerInfo.newBuilder();
-      ciBuilder.setContainerName(container.getContainer().getContainerName())
-          .setSize(container.getContainer().getMaxSize())
-          .setUsed(container.getContainer().getBytesUsed())
-          .setKeyCount(container.getContainer().getKeyCount())
+      ciBuilder.setContainerID(container.getContainerID())
+          .setSize(container.getMaxSize())
+          .setUsed(container.getBytesUsed())
+          .setKeyCount(container.getKeyCount())
           .setReadCount(container.getReadCount())
           .setWriteCount(container.getWriteCount())
           .setReadBytes(container.getReadBytes())
           .setWriteBytes(container.getWriteBytes())
-          .setContainerID(container.getContainer().getContainerID());
+          .setState(getState(containerId));
 
-      if (container.getContainer().getHash() != null) {
-        ciBuilder.setFinalhash(container.getContainer().getHash());
-      }
       crBuilder.addReports(ciBuilder.build());
     }
 
@@ -966,22 +968,22 @@ public class ContainerManagerImpl implements ContainerManager {
   }
 
   @Override
-  public void incrPendingDeletionBlocks(int numBlocks, String containerId) {
+  public void incrPendingDeletionBlocks(int numBlocks, long containerId) {
     writeLock();
     try {
-      ContainerStatus status = containerMap.get(containerId);
-      status.incrPendingDeletionBlocks(numBlocks);
+      ContainerData cData = containerMap.get(containerId);
+      cData.incrPendingDeletionBlocks(numBlocks);
     } finally {
       writeUnlock();
     }
   }
 
   @Override
-  public void decrPendingDeletionBlocks(int numBlocks, String containerId) {
+  public void decrPendingDeletionBlocks(int numBlocks, long containerId) {
     writeLock();
     try {
-      ContainerStatus status = containerMap.get(containerId);
-      status.decrPendingDeletionBlocks(numBlocks);
+      ContainerData cData = containerMap.get(containerId);
+      cData.decrPendingDeletionBlocks(numBlocks);
     } finally {
       writeUnlock();
     }
@@ -990,36 +992,41 @@ public class ContainerManagerImpl implements ContainerManager {
   /**
    * Increase the read count of the container.
    *
-   * @param containerName - Name of the container.
+   * @param containerId - ID of the container.
    */
   @Override
-  public void incrReadCount(String containerName) {
-    ContainerStatus status = containerMap.get(containerName);
-    status.incrReadCount();
+  public void incrReadCount(long containerId) {
+    ContainerData cData = containerMap.get(containerId);
+    cData.incrReadCount();
   }
 
-  public long getReadCount(String containerName) {
-    ContainerStatus status = containerMap.get(containerName);
-    return status.getReadCount();
+  public long getReadCount(long containerId) {
+    ContainerData cData = containerMap.get(containerId);
+    return cData.getReadCount();
   }
 
   /**
-   * Increse the read counter for bytes read from the container.
+   * Increase the read counter for bytes read from the container.
    *
-   * @param containerName - Name of the container.
+   * @param containerId - ID of the container.
    * @param readBytes     - bytes read from the container.
    */
   @Override
-  public void incrReadBytes(String containerName, long readBytes) {
-    ContainerStatus status = containerMap.get(containerName);
-    status.incrReadBytes(readBytes);
+  public void incrReadBytes(long containerId, long readBytes) {
+    ContainerData cData = containerMap.get(containerId);
+    cData.incrReadBytes(readBytes);
   }
 
-  public long getReadBytes(String containerName) {
+  /**
+   * Returns number of bytes read from the container.
+   * @param containerId
+   * @return
+   */
+  public long getReadBytes(long containerId) {
     readLock();
     try {
-      ContainerStatus status = containerMap.get(containerName);
-      return status.getReadBytes();
+      ContainerData cData = containerMap.get(containerId);
+      return cData.getReadBytes();
     } finally {
       readUnlock();
     }
@@ -1028,86 +1035,78 @@ public class ContainerManagerImpl implements ContainerManager {
   /**
    * Increase the write count of the container.
    *
-   * @param containerName - Name of the container.
+   * @param containerId - Name of the container.
    */
   @Override
-  public void incrWriteCount(String containerName) {
-    ContainerStatus status = containerMap.get(containerName);
-    status.incrWriteCount();
+  public void incrWriteCount(long containerId) {
+    ContainerData cData = containerMap.get(containerId);
+    cData.incrWriteCount();
   }
 
-  public long getWriteCount(String containerName) {
-    ContainerStatus status = containerMap.get(containerName);
-    return status.getWriteCount();
+  public long getWriteCount(long containerId) {
+    ContainerData cData = containerMap.get(containerId);
+    return cData.getWriteCount();
   }
 
   /**
    * Increse the write counter for bytes write into the container.
    *
-   * @param containerName - Name of the container.
+   * @param containerId   - ID of the container.
    * @param writeBytes    - bytes write into the container.
    */
   @Override
-  public void incrWriteBytes(String containerName, long writeBytes) {
-    ContainerStatus status = containerMap.get(containerName);
-    status.incrWriteBytes(writeBytes);
+  public void incrWriteBytes(long containerId, long writeBytes) {
+    ContainerData cData = containerMap.get(containerId);
+    cData.incrWriteBytes(writeBytes);
   }
 
-  public long getWriteBytes(String containerName) {
-    ContainerStatus status = containerMap.get(containerName);
-    return status.getWriteBytes();
+  public long getWriteBytes(long containerId) {
+    ContainerData cData = containerMap.get(containerId);
+    return cData.getWriteBytes();
   }
 
   /**
    * Increase the bytes used by the container.
    *
-   * @param containerName - Name of the container.
+   * @param containerId   - ID of the container.
    * @param used          - additional bytes used by the container.
    * @return the current bytes used.
    */
   @Override
-  public long incrBytesUsed(String containerName, long used) {
-    ContainerStatus status = containerMap.get(containerName);
-    return status.incrBytesUsed(used);
+  public long incrBytesUsed(long containerId, long used) {
+    ContainerData cData = containerMap.get(containerId);
+    return cData.incrBytesUsed(used);
   }
 
   /**
    * Decrease the bytes used by the container.
    *
-   * @param containerName - Name of the container.
+   * @param containerId   - ID of the container.
    * @param used          - additional bytes reclaimed by the container.
    * @return the current bytes used.
    */
   @Override
-  public long decrBytesUsed(String containerName, long used) {
-    ContainerStatus status = containerMap.get(containerName);
-    return status.decrBytesUsed(used);
+  public long decrBytesUsed(long containerId, long used) {
+    ContainerData cData = containerMap.get(containerId);
+    return cData.decrBytesUsed(used);
   }
 
-  public long getBytesUsed(String containerName) {
-    ContainerStatus status = containerMap.get(containerName);
-    return status.getBytesUsed();
+  public long getBytesUsed(long containerId) {
+    ContainerData cData = containerMap.get(containerId);
+    return cData.getBytesUsed();
   }
 
   /**
    * Get the number of keys in the container.
    *
-   * @param containerName - Name of the container.
+   * @param containerId - ID of the container.
    * @return the current key count.
    */
   @Override
-  public long getNumKeys(String containerName) {
-    ContainerStatus status = containerMap.get(containerName);
-    return status.getNumKeys();  }
-
-  /**
-   * Get the container report state to send via HB to SCM.
-   *
-   * @return container report state.
-   */
-  @Override
-  public ReportState getContainerReportState() {
-    return containerReportManager.getContainerReportState();
+  public long getNumKeys(long containerId) {
+    ContainerData cData = containerMap.get(containerId);
+    return cData.getKeyCount();
   }
+
 
 }

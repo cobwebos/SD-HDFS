@@ -20,6 +20,7 @@ package org.apache.hadoop.ozone.client.rpc;
 
 import org.apache.commons.lang.RandomStringUtils;
 import org.apache.hadoop.fs.StorageType;
+import org.apache.hadoop.hdds.scm.container.common.helpers.ContainerInfo;
 import org.apache.hadoop.ozone.MiniOzoneCluster;
 import org.apache.hadoop.ozone.OzoneAcl;
 import org.apache.hadoop.ozone.OzoneConfigKeys;
@@ -45,7 +46,6 @@ import org.apache.hadoop.ozone.ksm.helpers.KsmKeyLocationInfo;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos;
 import org.apache.hadoop.ozone.client.rest.OzoneException;
 import org.apache.hadoop.hdds.scm.ScmConfigKeys;
-import org.apache.hadoop.hdds.scm.container.common.helpers.Pipeline;
 import org.apache.hadoop.hdds.scm.protocolPB.
     StorageContainerLocationProtocolClientSideTranslatorPB;
 import org.apache.hadoop.util.Time;
@@ -388,10 +388,10 @@ public class TestOzoneRpcClient {
     KsmKeyInfo keyInfo = keySpaceManager.lookupKey(keyArgs);
     for (KsmKeyLocationInfo info:
         keyInfo.getLatestVersionLocations().getLocationList()) {
-      Pipeline pipeline =
-          storageContainerLocationClient.getContainer(info.getContainerName());
-      if ((pipeline.getFactor() != replicationFactor) ||
-          (pipeline.getType() != replicationType)) {
+      ContainerInfo container =
+          storageContainerLocationClient.getContainer(info.getContainerID());
+      if ((container.getPipeline().getFactor() != replicationFactor) ||
+          (container.getPipeline().getType() != replicationType)) {
         return false;
       }
     }
@@ -525,6 +525,50 @@ public class TestOzoneRpcClient {
     Assert.assertEquals(keyName, key.getName());
     bucket.deleteKey(keyName);
     bucket.getKey(keyName);
+  }
+
+  @Test
+  public void testRenameKey()
+      throws IOException, OzoneException {
+    String volumeName = UUID.randomUUID().toString();
+    String bucketName = UUID.randomUUID().toString();
+    String fromKeyName = UUID.randomUUID().toString();
+    String value = "sample value";
+    store.createVolume(volumeName);
+    OzoneVolume volume = store.getVolume(volumeName);
+    volume.createBucket(bucketName);
+    OzoneBucket bucket = volume.getBucket(bucketName);
+    OzoneOutputStream out = bucket.createKey(fromKeyName,
+        value.getBytes().length, ReplicationType.STAND_ALONE,
+        ReplicationFactor.ONE);
+    out.write(value.getBytes());
+    out.close();
+    OzoneKey key = bucket.getKey(fromKeyName);
+    Assert.assertEquals(fromKeyName, key.getName());
+
+    // Rename to empty string should fail.
+    IOException ioe = null;
+    String toKeyName = "";
+    try {
+      bucket.renameKey(fromKeyName, toKeyName);
+    } catch (IOException e) {
+      ioe = e;
+    }
+    Assert.assertTrue(ioe.getMessage().contains("Rename key failed, error"));
+
+    toKeyName = UUID.randomUUID().toString();
+    bucket.renameKey(fromKeyName, toKeyName);
+
+    // Lookup for old key should fail.
+    try {
+      bucket.getKey(fromKeyName);
+    } catch (IOException e) {
+      ioe = e;
+    }
+    Assert.assertTrue(ioe.getMessage().contains("Lookup key failed, error"));
+
+    key = bucket.getKey(toKeyName);
+    Assert.assertEquals(toKeyName, key.getName());
   }
 
   @Test

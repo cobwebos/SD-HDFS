@@ -29,13 +29,15 @@ option java_generate_equals_and_hash = true;
 package hadoop.hdds;
 
 message DatanodeDetailsProto {
-    // TODO: make the port as a seperate proto message and use it here
     required string uuid = 1;  // UUID assigned to the Datanode.
     required string ipAddress = 2;     // IP address
     required string hostName = 3;      // hostname
-    optional uint32 containerPort = 4 [default = 0];  // Ozone stand_alone protocol
-    optional uint32 ratisPort = 5 [default = 0];      //Ozone ratis port
-    optional uint32 ozoneRestPort = 6 [default = 0];
+    repeated Port ports = 4;
+}
+
+message Port {
+    required string name = 1;
+    required uint32 value = 2;
 }
 
 message PipelineChannel {
@@ -50,7 +52,6 @@ message PipelineChannel {
 // A pipeline is composed of PipelineChannel (Ratis/StandAlone) that back a
 // container.
 message Pipeline {
-    required string containerName = 1;
     required PipelineChannel pipelineChannel = 2;
 }
 
@@ -135,8 +136,7 @@ enum LifeCycleEvent {
 }
 
 message SCMContainerInfo {
-    // TODO : Remove the container name from pipeline.
-    required string containerName = 1;
+    required int64 containerID = 1;
     required LifeCycleState state = 2;
     required Pipeline pipeline = 3;
     // This is not total size of container, but space allocated by SCM for
@@ -146,7 +146,6 @@ message SCMContainerInfo {
     required uint64 numberOfKeys = 6;
     optional int64 stateEnterTime = 7;
     required string owner = 8;
-    required int64 containerID = 9;
 }
 
 message GetScmInfoRequestProto {
@@ -167,4 +166,12 @@ enum ReplicationType {
 enum ReplicationFactor {
     ONE = 1;
     THREE = 3;
+}
+
+/**
+ * Block ID that uniquely identify a block by SCM.
+ */
+message BlockID {
+    required int64 containerID = 1;
+    required int64 localID = 2;
 }

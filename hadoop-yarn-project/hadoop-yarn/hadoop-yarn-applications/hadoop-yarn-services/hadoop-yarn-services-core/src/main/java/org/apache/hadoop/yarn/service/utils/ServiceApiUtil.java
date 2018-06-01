@@ -19,8 +19,10 @@
 package org.apache.hadoop.yarn.service.utils;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -29,12 +31,16 @@ import org.apache.hadoop.registry.client.api.RegistryConstants;
 import org.apache.hadoop.registry.client.binding.RegistryUtils;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.yarn.exceptions.YarnException;
+import org.apache.hadoop.yarn.service.api.records.ComponentState;
 import org.apache.hadoop.yarn.service.api.records.Container;
+import org.apache.hadoop.yarn.service.api.records.ContainerState;
 import org.apache.hadoop.yarn.service.api.records.Service;
 import org.apache.hadoop.yarn.service.api.records.Artifact;
 import org.apache.hadoop.yarn.service.api.records.Component;
 import org.apache.hadoop.yarn.service.api.records.Configuration;
+import org.apache.hadoop.yarn.service.api.records.KerberosPrincipal;
 import org.apache.hadoop.yarn.service.api.records.PlacementConstraint;
+import org.apache.hadoop.yarn.service.api.records.PlacementPolicy;
 import org.apache.hadoop.yarn.service.api.records.Resource;
 import org.apache.hadoop.yarn.service.exceptions.SliderException;
 import org.apache.hadoop.yarn.service.conf.RestApiConstants;
@@ -56,6 +62,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import static org.apache.hadoop.yarn.service.exceptions.RestApiErrorMessages.ERROR_COMP_DOES_NOT_NEED_UPGRADE;
+import static org.apache.hadoop.yarn.service.exceptions.RestApiErrorMessages.ERROR_COMP_INSTANCE_DOES_NOT_NEED_UPGRADE;
 
 public class ServiceApiUtil {
   private static final Logger LOG =
@@ -111,14 +120,7 @@ public class ServiceApiUtil {
     }
 
     if (UserGroupInformation.isSecurityEnabled()) {
-      if (!StringUtils.isEmpty(service.getKerberosPrincipal().getKeytab())) {
-        try {
-          // validate URI format
-          new URI(service.getKerberosPrincipal().getKeytab());
-        } catch (URISyntaxException e) {
-          throw new IllegalArgumentException(e);
-        }
-      }
+      validateKerberosPrincipal(service.getKerberosPrincipal());
     }
 
     // Validate the Docker client config.
@@ -145,9 +147,8 @@ public class ServiceApiUtil {
         throw new IllegalArgumentException("Component name collision: " +
             comp.getName());
       }
-      // If artifact is of type SERVICE (which cannot be filled from
-      // global), read external service and add its components to this
-      // service
+      // If artifact is of type SERVICE (which cannot be filled from global),
+      // read external service and add its components to this service
       if (comp.getArtifact() != null && comp.getArtifact().getType() ==
           Artifact.TypeEnum.SERVICE) {
         if (StringUtils.isEmpty(comp.getArtifact().getId())) {
@@ -226,6 +227,25 @@ public class ServiceApiUtil {
     }
   }
 
+  public static void validateKerberosPrincipal(
+      KerberosPrincipal kerberosPrincipal) throws IOException {
+    if (!StringUtils.isEmpty(kerberosPrincipal.getKeytab())) {
+      try {
+        // validate URI format
+        URI keytabURI = new URI(kerberosPrincipal.getKeytab());
+        if (keytabURI.getScheme() == null) {
+          throw new IllegalArgumentException(String.format(
+              RestApiErrorMessages.ERROR_KEYTAB_URI_SCHEME_INVALID,
+              kerberosPrincipal.getKeytab()));
+        }
+      } catch (URISyntaxException e) {
+        throw new IllegalArgumentException(
+            String.format(RestApiErrorMessages.ERROR_KEYTAB_URI_INVALID,
+                e.getLocalizedMessage()));
+      }
+    }
+  }
+
   private static void validateDockerClientConfiguration(Service service,
       org.apache.hadoop.conf.Configuration conf) throws IOException {
     String dockerClientConfig = service.getDockerClientConfig();
@@ -295,9 +315,28 @@ public class ServiceApiUtil {
   private static void validatePlacementPolicy(List<Component> components,
       Set<String> componentNames) {
     for (Component comp : components) {
-      if (comp.getPlacementPolicy() != null) {
-        for (PlacementConstraint constraint : comp.getPlacementPolicy()
+      PlacementPolicy placementPolicy = comp.getPlacementPolicy();
+      if (placementPolicy != null) {
+        for (PlacementConstraint constraint : placementPolicy
             .getConstraints()) {
+          if (constraint.getType() == null) {
+            throw new IllegalArgumentException(String.format(
+              RestApiErrorMessages.ERROR_PLACEMENT_POLICY_CONSTRAINT_TYPE_NULL,
+              constraint.getName() == null ? "" : constraint.getName() + " ",
+              comp.getName()));
+          }
+          if (constraint.getScope() == null) {
+            throw new IllegalArgumentException(String.format(
+              RestApiErrorMessages.ERROR_PLACEMENT_POLICY_CONSTRAINT_SCOPE_NULL,
+              constraint.getName() == null ? "" : constraint.getName() + " ",
+              comp.getName()));
+          }
+          if (constraint.getTargetTags().isEmpty()) {
+            throw new IllegalArgumentException(String.format(
+              RestApiErrorMessages.ERROR_PLACEMENT_POLICY_CONSTRAINT_TAGS_NULL,
+              constraint.getName() == null ? "" : constraint.getName() + " ",
+              comp.getName()));
+          }
           for (String targetTag : constraint.getTargetTags()) {
             if (!comp.getName().equals(targetTag)) {
               throw new IllegalArgumentException(String.format(
@@ -531,6 +570,48 @@ public class ServiceApiUtil {
       }
     });
     return result;
+  }
+
+  /**
+   * Validates that the component instances that are requested to upgrade
+   * require an upgrade.
+   */
+  public static void validateInstancesUpgrade(List<Container>
+      liveContainers) throws YarnException {
+    for (Container liveContainer : liveContainers) {
+      if (!liveContainer.getState().equals(ContainerState.NEEDS_UPGRADE)) {
+        // Nothing to upgrade
+        throw new YarnException(String.format(
+            ERROR_COMP_INSTANCE_DOES_NOT_NEED_UPGRADE,
+            liveContainer.getComponentInstanceName()));
+      }
+    }
+  }
+
+  /**
+   * Validates the components that are requested to upgrade require an upgrade.
+   * It returns the instances of the components which need upgrade.
+   */
+  public static List<Container> validateAndResolveCompsUpgrade(
+      Service liveService, Collection<String> compNames) throws YarnException {
+    Preconditions.checkNotNull(compNames);
+    HashSet<String> requestedComps = Sets.newHashSet(compNames);
+    List<Container> containerNeedUpgrade = new ArrayList<>();
+    for (Component liveComp : liveService.getComponents()) {
+      if (requestedComps.contains(liveComp.getName())) {
+        if (!liveComp.getState().equals(ComponentState.NEEDS_UPGRADE)) {
+          // Nothing to upgrade
+          throw new YarnException(String.format(
+              ERROR_COMP_DOES_NOT_NEED_UPGRADE, liveComp.getName()));
+        }
+        liveComp.getContainers().forEach(liveContainer -> {
+          if (liveContainer.getState().equals(ContainerState.NEEDS_UPGRADE)) {
+            containerNeedUpgrade.add(liveContainer);
+          }
+        });
+      }
+    }
+    return containerNeedUpgrade;
   }
 
   private static String parseComponentName(String componentInstanceName)

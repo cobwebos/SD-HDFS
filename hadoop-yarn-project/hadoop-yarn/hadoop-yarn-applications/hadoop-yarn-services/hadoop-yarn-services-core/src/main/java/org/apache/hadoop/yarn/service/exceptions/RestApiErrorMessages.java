@@ -91,6 +91,14 @@ public interface RestApiErrorMessages {
 
   String ERROR_QUICKLINKS_FOR_COMP_INVALID = "Quicklinks specified at"
       + " component level, needs corresponding values set at service level";
+  // Note: %sin is not a typo. Constraint name is optional so the error messages
+  // below handle that scenario by adding a space if name is specified.
+  String ERROR_PLACEMENT_POLICY_CONSTRAINT_TYPE_NULL = "Type not specified "
+      + "for constraint %sin placement policy of component %s.";
+  String ERROR_PLACEMENT_POLICY_CONSTRAINT_SCOPE_NULL = "Scope not specified "
+      + "for constraint %sin placement policy of component %s.";
+  String ERROR_PLACEMENT_POLICY_CONSTRAINT_TAGS_NULL = "Tag(s) not specified "
+      + "for constraint %sin placement policy of component %s.";
   String ERROR_PLACEMENT_POLICY_TAG_NAME_NOT_SAME = "Invalid target tag %s "
       + "specified in placement policy of component %s. For now, target tags "
       + "support self reference only. Specifying anything other than its "
@@ -103,4 +111,12 @@ public interface RestApiErrorMessages {
       + "expression element name %s specified in placement policy of component "
       + "%s. Expression element names should be a valid constraint name or an "
       + "expression name defined for this component only.";
+  String ERROR_KEYTAB_URI_SCHEME_INVALID = "Unsupported keytab URI scheme: %s";
+  String ERROR_KEYTAB_URI_INVALID = "Invalid keytab URI: %s";
+
+  String ERROR_COMP_INSTANCE_DOES_NOT_NEED_UPGRADE = "The component instance " +
+      "(%s) does not need an upgrade.";
+
+  String ERROR_COMP_DOES_NOT_NEED_UPGRADE = "The component (%s) does not need" +
+      " an upgrade.";
 }

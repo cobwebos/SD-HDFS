@@ -44,7 +44,6 @@ import org.apache.hadoop.ozone.client.rest.headers.Header;
 import org.apache.hadoop.ozone.client.rest.response.BucketInfo;
 import org.apache.hadoop.ozone.client.rest.response.KeyInfo;
 import org.apache.hadoop.ozone.client.rest.response.VolumeInfo;
-import org.apache.hadoop.ozone.client.rpc.RpcClient;
 import org.apache.hadoop.ozone.ksm.KSMConfigKeys;
 import org.apache.hadoop.ozone.ksm.helpers.ServiceInfo;
 import org.apache.hadoop.ozone.protocol.proto
@@ -94,7 +93,7 @@ import static java.net.HttpURLConnection.HTTP_OK;
 public class RestClient implements ClientProtocol {
 
   private static final String PATH_SEPARATOR = "/";
-  private static final Logger LOG = LoggerFactory.getLogger(RpcClient.class);
+  private static final Logger LOG = LoggerFactory.getLogger(RestClient.class);
 
   private final Configuration conf;
   private final URI ozoneRestUri;
@@ -195,8 +194,9 @@ public class RestClient implements ClientProtocol {
 
       ServiceInfo restServer = selector.getRestServer(dataNodeInfos);
 
-      return NetUtils.createSocketAddr(restServer.getHostname() + ":" +
-          restServer.getPort(ServicePort.Type.HTTP));
+      return NetUtils.createSocketAddr(
+          NetUtils.normalizeHostName(restServer.getHostname()) + ":"
+              + restServer.getPort(ServicePort.Type.HTTP));
     } finally {
       EntityUtils.consume(entity);
     }
@@ -211,7 +211,8 @@ public class RestClient implements ClientProtocol {
   public void createVolume(String volumeName, VolumeArgs volArgs)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
+      HddsClientUtils.verifyResourceName(volumeName);
+      Preconditions.checkNotNull(volArgs);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       String owner = volArgs.getOwner() == null ?
           ugi.getUserName() : volArgs.getOwner();
@@ -256,7 +257,7 @@ public class RestClient implements ClientProtocol {
   public void setVolumeOwner(String volumeName, String owner)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
+      HddsClientUtils.verifyResourceName(volumeName);
       Preconditions.checkNotNull(owner);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       builder.setPath(PATH_SEPARATOR + volumeName);
@@ -273,7 +274,7 @@ public class RestClient implements ClientProtocol {
   public void setVolumeQuota(String volumeName, OzoneQuota quota)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
+      HddsClientUtils.verifyResourceName(volumeName);
       Preconditions.checkNotNull(quota);
       String quotaString = quota.toString();
       URIBuilder builder = new URIBuilder(ozoneRestUri);
@@ -291,7 +292,7 @@ public class RestClient implements ClientProtocol {
   public OzoneVolume getVolumeDetails(String volumeName)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
+      HddsClientUtils.verifyResourceName(volumeName);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       builder.setPath(PATH_SEPARATOR + volumeName);
       builder.setParameter(Header.OZONE_INFO_QUERY_TAG,
@@ -326,7 +327,7 @@ public class RestClient implements ClientProtocol {
   @Override
   public void deleteVolume(String volumeName) throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
+      HddsClientUtils.verifyResourceName(volumeName);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       builder.setPath(PATH_SEPARATOR + volumeName);
       HttpDelete httpDelete = new HttpDelete(builder.build());
@@ -362,8 +363,7 @@ public class RestClient implements ClientProtocol {
       String volumeName, String bucketName, BucketArgs bucketArgs)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
       Preconditions.checkNotNull(bucketArgs);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       OzoneConsts.Versioning versioning = OzoneConsts.Versioning.DISABLED;
@@ -404,8 +404,7 @@ public class RestClient implements ClientProtocol {
       String volumeName, String bucketName, List<OzoneAcl> addAcls)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
       Preconditions.checkNotNull(addAcls);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
 
@@ -429,8 +428,7 @@ public class RestClient implements ClientProtocol {
       String volumeName, String bucketName, List<OzoneAcl> removeAcls)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
       Preconditions.checkNotNull(removeAcls);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
 
@@ -454,8 +452,7 @@ public class RestClient implements ClientProtocol {
       String volumeName, String bucketName, Boolean versioning)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
       Preconditions.checkNotNull(versioning);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
 
@@ -477,8 +474,7 @@ public class RestClient implements ClientProtocol {
       String volumeName, String bucketName, StorageType storageType)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
       Preconditions.checkNotNull(storageType);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
 
@@ -498,8 +494,7 @@ public class RestClient implements ClientProtocol {
   public void deleteBucket(String volumeName, String bucketName)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       builder.setPath(PATH_SEPARATOR + volumeName +
           PATH_SEPARATOR + bucketName);
@@ -521,8 +516,7 @@ public class RestClient implements ClientProtocol {
   public OzoneBucket getBucketDetails(String volumeName, String bucketName)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       builder.setPath(PATH_SEPARATOR + volumeName +
           PATH_SEPARATOR + bucketName);
@@ -573,9 +567,8 @@ public class RestClient implements ClientProtocol {
     // TODO: Once ReplicationType and ReplicationFactor are supported in
     // OzoneHandler (in Datanode), set them in header.
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
-      Preconditions.checkNotNull(keyName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
+      HddsClientUtils.checkNotNull(keyName, type, factor);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       builder.setPath(PATH_SEPARATOR + volumeName +
           PATH_SEPARATOR + bucketName +
@@ -617,8 +610,7 @@ public class RestClient implements ClientProtocol {
       String volumeName, String bucketName, String keyName)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
       Preconditions.checkNotNull(keyName);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       builder.setPath(PATH_SEPARATOR + volumeName +
@@ -661,8 +653,7 @@ public class RestClient implements ClientProtocol {
   public void deleteKey(String volumeName, String bucketName, String keyName)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
       Preconditions.checkNotNull(keyName);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       builder.setPath(PATH_SEPARATOR + volumeName +
@@ -670,6 +661,24 @@ public class RestClient implements ClientProtocol {
       HttpDelete httpDelete = new HttpDelete(builder.build());
       addOzoneHeaders(httpDelete);
       EntityUtils.consume(executeHttpRequest(httpDelete));
+    } catch (URISyntaxException e) {
+      throw new IOException(e);
+    }
+  }
+
+  @Override
+  public void renameKey(String volumeName, String bucketName,
+      String fromKeyName, String toKeyName) throws IOException {
+    try {
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
+      HddsClientUtils.checkNotNull(fromKeyName, toKeyName);
+      URIBuilder builder = new URIBuilder(ozoneRestUri);
+      builder.setPath(PATH_SEPARATOR + volumeName + PATH_SEPARATOR + bucketName
+          + PATH_SEPARATOR + fromKeyName);
+      builder.addParameter(Header.OZONE_RENAME_TO_KEY_PARAM_NAME, toKeyName);
+      HttpPost httpPost = new HttpPost(builder.build());
+      addOzoneHeaders(httpPost);
+      EntityUtils.consume(executeHttpRequest(httpPost));
     } catch (URISyntaxException e) {
       throw new IOException(e);
     }
@@ -688,8 +697,7 @@ public class RestClient implements ClientProtocol {
       String volumeName, String bucketName, String keyName)
       throws IOException {
     try {
-      Preconditions.checkNotNull(volumeName);
-      Preconditions.checkNotNull(bucketName);
+      HddsClientUtils.verifyResourceName(volumeName, bucketName);
       Preconditions.checkNotNull(keyName);
       URIBuilder builder = new URIBuilder(ozoneRestUri);
       builder.setPath(PATH_SEPARATOR + volumeName +

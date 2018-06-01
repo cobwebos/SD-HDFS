@@ -18,6 +18,10 @@
 
 package org.apache.hadoop.hdds.scm.container.common.helpers;
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
@@ -25,6 +29,7 @@ import org.apache.hadoop.hdds.scm.container.ContainerID;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos;
 import org.apache.hadoop.util.Time;
 
+import java.io.IOException;
 import java.util.Comparator;
 
 /**
@@ -32,6 +37,17 @@ import java.util.Comparator;
  */
 public class ContainerInfo
     implements Comparator<ContainerInfo>, Comparable<ContainerInfo> {
+
+  private static final ObjectWriter WRITER;
+
+  static {
+    ObjectMapper mapper = new ObjectMapper();
+    mapper.setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY);
+    mapper
+        .setVisibility(PropertyAccessor.GETTER, JsonAutoDetect.Visibility.NONE);
+    WRITER = mapper.writer();
+  }
+
   private HddsProtos.LifeCycleState state;
   private Pipeline pipeline;
   // Bytes allocated by SCM for clients.
@@ -43,11 +59,9 @@ public class ContainerInfo
   // The wall-clock ms since the epoch at which the current state enters.
   private long stateEnterTime;
   private String owner;
-  private String containerName;
   private long containerID;
   ContainerInfo(
       long containerID,
-      final String containerName,
       HddsProtos.LifeCycleState state,
       Pipeline pipeline,
       long allocatedBytes,
@@ -56,7 +70,6 @@ public class ContainerInfo
       long stateEnterTime,
       String owner) {
     this.containerID = containerID;
-    this.containerName = containerName;
     this.pipeline = pipeline;
     this.allocatedBytes = allocatedBytes;
     this.usedBytes = usedBytes;
@@ -82,17 +95,12 @@ public class ContainerInfo
     builder.setState(info.getState());
     builder.setStateEnterTime(info.getStateEnterTime());
     builder.setOwner(info.getOwner());
-    builder.setContainerName(info.getContainerName());
     builder.setContainerID(info.getContainerID());
     return builder.build();
   }
 
   public long getContainerID() {
     return containerID;
-  }
-
-  public String getContainerName() {
-    return containerName;
   }
 
   public HddsProtos.LifeCycleState getState() {
@@ -170,7 +178,6 @@ public class ContainerInfo
     if (getOwner() != null) {
       builder.setOwner(getOwner());
     }
-    builder.setContainerName(getContainerName());
     return builder.build();
   }
 
@@ -189,7 +196,6 @@ public class ContainerInfo
         + ", pipeline=" + pipeline
         + ", stateEnterTime=" + stateEnterTime
         + ", owner=" + owner
-        + ", containerName='" + containerName
         + '}';
   }
 
@@ -206,7 +212,7 @@ public class ContainerInfo
     ContainerInfo that = (ContainerInfo) o;
 
     return new EqualsBuilder()
-        .append(pipeline.getContainerName(), that.pipeline.getContainerName())
+        .append(getContainerID(), that.getContainerID())
 
         // TODO : Fix this later. If we add these factors some tests fail.
         // So Commenting this to continue and will enforce this with
@@ -221,7 +227,7 @@ public class ContainerInfo
   @Override
   public int hashCode() {
     return new HashCodeBuilder(11, 811)
-        .append(pipeline.getContainerName())
+        .append(getContainerID())
         .append(pipeline.getFactor())
         .append(pipeline.getType())
         .append(owner)
@@ -265,6 +271,16 @@ public class ContainerInfo
   }
 
   /**
+   * Returns a JSON string of this object.
+   *
+   * @return String - json string
+   * @throws IOException
+   */
+  public String toJsonString() throws IOException {
+    return WRITER.writeValueAsString(this);
+  }
+
+  /**
    * Builder class for ContainerInfo.
    */
   public static class Builder {
@@ -275,7 +291,6 @@ public class ContainerInfo
     private long keys;
     private long stateEnterTime;
     private String owner;
-    private String containerName;
     private long containerID;
 
     public Builder setContainerID(long id) {
@@ -319,14 +334,9 @@ public class ContainerInfo
       return this;
     }
 
-    public Builder setContainerName(String container) {
-      this.containerName = container;
-      return this;
-    }
-
     public ContainerInfo build() {
       return new
-          ContainerInfo(containerID, containerName, state, pipeline,
+          ContainerInfo(containerID, state, pipeline,
           allocated, used, keys, stateEnterTime, owner);
     }
   }

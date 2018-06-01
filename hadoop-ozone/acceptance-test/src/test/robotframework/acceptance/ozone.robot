@@ -21,8 +21,7 @@ Suite Teardown      Teardown Ozone Cluster
 
 *** Variables ***
 ${COMMON_REST_HEADER}   -H "x-ozone-user: bilbo" -H "x-ozone-version: v1" -H  "Date: Mon, 26 Jun 2017 04:23:30 GMT" -H "Authorization:OZONE root"
-${version}
-
+${basedir}
 *** Test Cases ***
 
 Daemons are running without error
@@ -47,18 +46,6 @@ Test rest interface
                     Should contain      ${result}       200 OK
     ${result} =     Execute on          datanode        curl -i -X DELETE ${COMMON_RESTHEADER} "http://localhost:9880/volume1"
                     Should contain      ${result}       200 OK
-
-Test ozone cli
-                    Execute on          datanode        ozone oz -createVolume http://localhost:9880/hive -user bilbo -quota 100TB -root
-    ${result} =     Execute on          datanode        ozone oz -listVolume http://localhost:9880/ -user bilbo | grep -v Removed | jq '.[] | select(.volumeName=="hive")'
-                    Should contain      ${result}       createdOn
-                    Execute on          datanode        ozone oz -createBucket http://localhost:9880/hive/bb1
-    ${result}       Execute on          datanode        ozone oz -listBucket http://localhost:9880/hive/ | grep -v Removed | jq -r '.[] | select(.bucketName=="bb1") | .volumeName'
-                    Should Be Equal     ${result}       hive
-                    Execute on          datanode        ozone oz -deleteBucket http://localhost:9880/hive/bb1
-                    Execute on          datanode        ozone oz -deleteVolume http://localhost:9880/hive -user bilbo
-
-
 
 Check webui static resources
     ${result} =			Execute on		scm		curl -s -I http://localhost:9876/static/bootstrap-3.0.2/js/bootstrap.min.js
@@ -110,7 +97,8 @@ Execute on
 
 Run docker compose
     [arguments]                     ${command}
-                                    Set Environment Variable    HADOOPDIR                              ${basedir}/../../hadoop-dist/target/hadoop-${version}
-    ${rc}                           ${output} =                 Run And Return Rc And Output           docker-compose -f ${basedir}/target/compose/docker-compose.yaml ${command}
+                                    Set Environment Variable    OZONEDIR                               ${basedir}/hadoop-dist/target/ozone
+    ${rc}                           ${output} =                 Run And Return Rc And Output           docker-compose -f ${basedir}/hadoop-ozone/acceptance-test/src/test/compose/docker-compose.yaml ${command}
+    Log                             ${output}
     Should Be Equal As Integers     ${rc}                       0
     [return]                            ${rc}                       ${output}

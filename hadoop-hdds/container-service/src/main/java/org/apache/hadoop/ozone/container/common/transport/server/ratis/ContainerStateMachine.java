@@ -19,13 +19,14 @@
 package org.apache.hadoop.ozone.container.common.transport.server.ratis;
 
 import com.google.common.base.Preconditions;
-import com.google.protobuf.InvalidProtocolBufferException;
-import org.apache.hadoop.hdds.protocol.proto.ContainerProtos;
-import org.apache.hadoop.hdds.protocol.proto.ContainerProtos
+import org.apache.ratis.shaded.com.google.protobuf
+    .InvalidProtocolBufferException;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos;
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
     .ContainerCommandRequestProto;
-import org.apache.hadoop.hdds.protocol.proto.ContainerProtos
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
     .ContainerCommandResponseProto;
-import org.apache.hadoop.hdds.protocol.proto.ContainerProtos
+import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos
     .WriteChunkRequestProto;
 import org.apache.hadoop.ozone.container.common.interfaces.ContainerDispatcher;
 import org.apache.ratis.conf.RaftProperties;
@@ -34,7 +35,6 @@ import org.apache.ratis.protocol.RaftClientRequest;
 import org.apache.ratis.protocol.RaftPeerId;
 import org.apache.ratis.server.storage.RaftStorage;
 import org.apache.ratis.shaded.com.google.protobuf.ByteString;
-import org.apache.ratis.shaded.com.google.protobuf.ShadedProtoUtil;
 import org.apache.ratis.shaded.proto.RaftProtos.LogEntryProto;
 import org.apache.ratis.shaded.proto.RaftProtos.SMLogEntryProto;
 import org.apache.ratis.statemachine.StateMachineStorage;
@@ -94,7 +94,7 @@ public class ContainerStateMachine extends BaseStateMachine {
   private ThreadPoolExecutor writeChunkExecutor;
   private final ConcurrentHashMap<Long, CompletableFuture<Message>>
       writeChunkFutureMap;
-  private final ConcurrentHashMap<String, CompletableFuture<Message>>
+  private final ConcurrentHashMap<Long, CompletableFuture<Message>>
       createContainerFutureMap;
 
   ContainerStateMachine(ContainerDispatcher dispatcher,
@@ -146,8 +146,7 @@ public class ContainerStateMachine extends BaseStateMachine {
       // create the log entry proto
       final WriteChunkRequestProto commitWriteChunkProto =
           WriteChunkRequestProto.newBuilder()
-              .setPipeline(write.getPipeline())
-              .setKeyName(write.getKeyName())
+              .setBlockID(write.getBlockID())
               .setChunkData(write.getChunkData())
               // skipping the data field as it is
               // already set in statemachine data proto
@@ -160,8 +159,8 @@ public class ContainerStateMachine extends BaseStateMachine {
               .build();
 
       log = SMLogEntryProto.newBuilder()
-          .setData(getShadedByteString(commitContainerCommandProto))
-          .setStateMachineData(getShadedByteString(dataContainerCommandProto))
+          .setData(commitContainerCommandProto.toByteString())
+          .setStateMachineData(dataContainerCommandProto.toByteString())
           .build();
     } else if (proto.getCmdType() == ContainerProtos.Type.CreateContainer) {
       log = SMLogEntryProto.newBuilder()
@@ -176,29 +175,24 @@ public class ContainerStateMachine extends BaseStateMachine {
     return new TransactionContextImpl(this, request, log);
   }
 
-  private ByteString getShadedByteString(ContainerCommandRequestProto proto) {
-    return ShadedProtoUtil.asShadedByteString(proto.toByteArray());
-  }
-
   private ContainerCommandRequestProto getRequestProto(ByteString request)
       throws InvalidProtocolBufferException {
-    return ContainerCommandRequestProto.parseFrom(
-        ShadedProtoUtil.asByteString(request));
+    return ContainerCommandRequestProto.parseFrom(request);
   }
 
   private Message runCommand(ContainerCommandRequestProto requestProto) {
     LOG.trace("dispatch {}", requestProto);
     ContainerCommandResponseProto response = dispatcher.dispatch(requestProto);
     LOG.trace("response {}", response);
-    return () -> ShadedProtoUtil.asShadedByteString(response.toByteArray());
+    return () -> response.toByteString();
   }
 
   private CompletableFuture<Message> handleWriteChunk(
       ContainerCommandRequestProto requestProto, long entryIndex) {
     final WriteChunkRequestProto write = requestProto.getWriteChunk();
-    String containerName = write.getPipeline().getContainerName();
+    long containerID = write.getBlockID().getContainerID();
     CompletableFuture<Message> future =
-        createContainerFutureMap.get(containerName);
+        createContainerFutureMap.get(containerID);
     CompletableFuture<Message> writeChunkFuture;
     if (future != null) {
       writeChunkFuture = future.thenApplyAsync(
@@ -213,10 +207,10 @@ public class ContainerStateMachine extends BaseStateMachine {
 
   private CompletableFuture<Message> handleCreateContainer(
       ContainerCommandRequestProto requestProto) {
-    String containerName =
-        requestProto.getCreateContainer().getContainerData().getName();
+    long containerID =
+        requestProto.getCreateContainer().getContainerData().getContainerID();
     createContainerFutureMap.
-        computeIfAbsent(containerName, k -> new CompletableFuture<>());
+        computeIfAbsent(containerID, k -> new CompletableFuture<>());
     return CompletableFuture.completedFuture(() -> ByteString.EMPTY);
   }
 
@@ -270,9 +264,9 @@ public class ContainerStateMachine extends BaseStateMachine {
       } else {
         Message message = runCommand(requestProto);
         if (cmdType == ContainerProtos.Type.CreateContainer) {
-          String containerName =
-              requestProto.getCreateContainer().getContainerData().getName();
-          createContainerFutureMap.remove(containerName).complete(message);
+          long containerID =
+              requestProto.getCreateContainer().getContainerData().getContainerID();
+          createContainerFutureMap.remove(containerID).complete(message);
         }
         return CompletableFuture.completedFuture(message);
       }

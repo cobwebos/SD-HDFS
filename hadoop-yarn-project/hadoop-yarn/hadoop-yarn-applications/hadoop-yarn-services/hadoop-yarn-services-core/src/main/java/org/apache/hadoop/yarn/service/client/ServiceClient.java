@@ -294,6 +294,17 @@ public class ServiceClient extends AppAdminClient implements SliderExitCodes,
     Service persistedService = ServiceApiUtil.loadService(fs, appName);
     List<Container> containersToUpgrade = ServiceApiUtil.
         getLiveContainers(persistedService, componentInstances);
+    ServiceApiUtil.validateInstancesUpgrade(containersToUpgrade);
+    return actionUpgrade(persistedService, containersToUpgrade);
+  }
+
+  @Override
+  public int actionUpgradeComponents(String appName,
+      List<String> components) throws IOException, YarnException {
+    checkAppExistOnHdfs(appName);
+    Service persistedService = ServiceApiUtil.loadService(fs, appName);
+    List<Container> containersToUpgrade = ServiceApiUtil
+        .validateAndResolveCompsUpgrade(persistedService, components);
     return actionUpgrade(persistedService, containersToUpgrade);
   }
 
@@ -860,6 +871,17 @@ public class ServiceClient extends AppAdminClient implements SliderExitCodes,
     //TODO debugAM CLI.add(Arguments.ARG_DEBUG)
     CLI.add("-" + ServiceMaster.YARNFILE_OPTION, new Path(appRootDir,
         app.getName() + ".json"));
+    CLI.add("-" + ServiceMaster.SERVICE_NAME_OPTION, app.getName());
+    if (app.getKerberosPrincipal() != null) {
+      if (!StringUtils.isEmpty(app.getKerberosPrincipal().getKeytab())) {
+        CLI.add("-" + ServiceMaster.KEYTAB_OPTION,
+            app.getKerberosPrincipal().getKeytab());
+      }
+      if (!StringUtils.isEmpty(app.getKerberosPrincipal().getPrincipalName())) {
+        CLI.add("-" + ServiceMaster.PRINCIPAL_NAME_OPTION,
+            app.getKerberosPrincipal().getPrincipalName());
+      }
+    }
     // pass the registry binding
     CLI.addConfOptionToCLI(conf, RegistryConstants.KEY_REGISTRY_ZK_ROOT,
         RegistryConstants.DEFAULT_ZK_REGISTRY_ROOT);
@@ -967,6 +989,8 @@ public class ServiceClient extends AppAdminClient implements SliderExitCodes,
       // see if it is actually running and bail out;
       verifyNoLiveAppInRM(serviceName, "start");
       ApplicationId appId = submitApp(service);
+      cachedAppInfo.put(serviceName, new AppInfo(appId, service
+          .getKerberosPrincipal().getPrincipalName()));
       service.setId(appId.toString());
       // write app definition on to hdfs
       Path appJson = ServiceApiUtil.writeAppDefinition(fs, appDir, service);
@@ -1065,7 +1089,7 @@ public class ServiceClient extends AppAdminClient implements SliderExitCodes,
       LOG.warn("No Kerberos principal name specified for " + service.getName());
       return;
     }
-    if(StringUtils.isEmpty(service.getKerberosPrincipal().getKeytab())) {
+    if (StringUtils.isEmpty(service.getKerberosPrincipal().getKeytab())) {
       LOG.warn("No Kerberos keytab specified for " + service.getName());
       return;
     }
@@ -1077,27 +1101,31 @@ public class ServiceClient extends AppAdminClient implements SliderExitCodes,
       throw new YarnException(e);
     }
 
-    switch (keytabURI.getScheme()) {
-    case "hdfs":
-      Path keytabOnhdfs = new Path(keytabURI);
-      if (!fileSystem.getFileSystem().exists(keytabOnhdfs)) {
-        LOG.warn(service.getName() + "'s keytab (principalName = " +
-            principalName + ") doesn't exist at: " + keytabOnhdfs);
-        return;
+    if (keytabURI.getScheme() != null) {
+      switch (keytabURI.getScheme()) {
+      case "hdfs":
+        Path keytabOnhdfs = new Path(keytabURI);
+        if (!fileSystem.getFileSystem().exists(keytabOnhdfs)) {
+          LOG.warn(service.getName() + "'s keytab (principalName = "
+              + principalName + ") doesn't exist at: " + keytabOnhdfs);
+          return;
+        }
+        LocalResource keytabRes = fileSystem.createAmResource(keytabOnhdfs,
+            LocalResourceType.FILE);
+        localResource.put(String.format(YarnServiceConstants.KEYTAB_LOCATION,
+            service.getName()), keytabRes);
+        LOG.info("Adding " + service.getName() + "'s keytab for "
+            + "localization, uri = " + keytabOnhdfs);
+        break;
+      case "file":
+        LOG.info("Using a keytab from localhost: " + keytabURI);
+        break;
+      default:
+        LOG.warn("Unsupported keytab URI scheme " + keytabURI);
+        break;
       }
-      LocalResource keytabRes =
-          fileSystem.createAmResource(keytabOnhdfs, LocalResourceType.FILE);
-      localResource.put(String.format(YarnServiceConstants.KEYTAB_LOCATION,
-          service.getName()), keytabRes);
-      LOG.debug("Adding " + service.getName() + "'s keytab for " +
-          "localization, uri = " + keytabOnhdfs);
-      break;
-    case "file":
-      LOG.debug("Using a keytab from localhost: " + keytabURI);
-      break;
-    default:
-      LOG.warn("Unsupported URI scheme " + keytabURI);
-      break;
+    } else {
+      LOG.warn("Unsupported keytab URI scheme " + keytabURI);
     }
   }
 
@@ -1183,6 +1211,7 @@ public class ServiceClient extends AppAdminClient implements SliderExitCodes,
     ServiceApiUtil.validateNameFormat(serviceName, getConfig());
     Service appSpec = new Service();
     appSpec.setName(serviceName);
+    appSpec.setState(ServiceState.STOPPED);
     ApplicationId currentAppId = getAppId(serviceName);
     if (currentAppId == null) {
       LOG.info("Service {} does not have an application ID", serviceName);
