@@ -21,6 +21,7 @@ package org.apache.hadoop.hdfs.server.namenode.ha;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hadoop.io.retry.FailoverProxyProvider;
+import org.apache.hadoop.ipc.AlignmentContext;
 
 public abstract class AbstractNNFailoverProxyProvider<T> implements
     FailoverProxyProvider <T> {
@@ -50,5 +51,9 @@ public abstract class AbstractNNFailoverProxyProvider<T> implements
 
   public synchronized AtomicBoolean getFallbackToSimpleAuth() {
     return fallbackToSimpleAuth;
+  }
+
+  public synchronized AlignmentContext getAlignmentContext() {
+    return null; // by default the context is null
   }
 }
